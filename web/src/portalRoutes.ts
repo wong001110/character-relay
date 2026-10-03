@@ -9,6 +9,38 @@ export const portalRoutes = {
   componentLibrary: "/dev/ui"
 } as const;
 
+export type SettingsWorkspaceTab = "account" | "server-access" | "administration";
+export type AdministrationRouteTab = "users" | "servers" | "connector" | "knowledge";
+export interface SettingsRouteState {
+  tab: SettingsWorkspaceTab;
+  administrationTab: AdministrationRouteTab;
+}
+
+const SETTINGS_TABS = new Set<SettingsWorkspaceTab>(["account", "server-access", "administration"]);
+const ADMINISTRATION_TABS = new Set<AdministrationRouteTab>(["users", "servers", "connector", "knowledge"]);
+
+export function settingsRoute(
+  tab: SettingsWorkspaceTab = "account",
+  administrationTab: AdministrationRouteTab = "users"
+): string {
+  const params = new URLSearchParams({tab});
+  if (tab === "administration") params.set("admin", administrationTab);
+  return `${portalRoutes.settings}?${params.toString()}`;
+}
+
+export function settingsRouteForSearch(search: string): SettingsRouteState {
+  const params = new URLSearchParams(search);
+  const requestedTab = params.get("tab") as SettingsWorkspaceTab | null;
+  const requestedAdministration = params.get("admin") as AdministrationRouteTab | null;
+  return {
+    tab: requestedTab && SETTINGS_TABS.has(requestedTab) ? requestedTab : "account",
+    administrationTab:
+      requestedAdministration && ADMINISTRATION_TABS.has(requestedAdministration)
+        ? requestedAdministration
+        : "users"
+  };
+}
+
 export type DeploymentNotebookTab = "characters" | "knowledge" | "notes" | "operations";
 export interface DeploymentRouteState {
   serverProfileId: string | null;

@@ -1739,7 +1739,7 @@
 .character-archive-toolbar .cr-page-flag[aria-pressed="true"] { transform: translateY(-2px) rotate(-.4deg); }
 .character-archive-filter-copy { display: grid; gap: 1px; text-align: left; }
 .character-archive-filter-copy strong { font: 700 .9rem var(--cr-font-note); }
-.character-archive-filter-copy small { color: var(--cr-ink-muted); font-size: .58rem; }
+.character-archive-filter-copy small { color: #675b64; font-size: .58rem; }
 
 .character-archive-book {
   grid-template-columns: minmax(0, 1fr) 205px;
@@ -1785,8 +1785,8 @@
 
 .character-archive-card-copy { align-self: center; padding: 2px 0; }
 .character-archive-card-copy h2 { display: -webkit-box; overflow: hidden; font-size: 1.35rem; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.character-archive-card-copy > p { min-height: 0; margin: 4px 0 0; padding: 3px 6px; overflow: hidden; background: var(--cr-lavender-soft); font-size: .62rem; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.character-archive-card-summary { display: -webkit-box; min-height: 44px; margin: 12px 0 8px; overflow: hidden; color: #62575e; font-size: .72rem; line-height: 1.55; text-align: left; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.character-archive-card-copy > p { min-height: 0; margin: 4px 0 0; padding: 3px 6px; overflow: hidden; background: var(--cr-lavender-soft); color: #5b5059; font-size: .62rem; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.character-archive-card-summary { display: -webkit-box; min-height: 44px; margin: 12px 0 8px; overflow: hidden; color: #554b52; font-size: .72rem; line-height: 1.55; text-align: left; line-clamp: 2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .character-archive-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .character-archive-card-tags .cr-sticky-label { max-width: 100%; padding: 3px 6px; overflow: hidden; font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
 .character-archive-card-status { padding: 8px 12px 4px; }
@@ -2058,7 +2058,7 @@
 @media (max-width: 1180px) {
   .character-archive-header { grid-template-columns: minmax(310px, 1fr) minmax(260px, 1fr); gap: 18px; }
   .character-archive-summary { grid-template-columns: 250px 210px minmax(260px, 1fr); gap: 18px; }
-  .character-archive-files { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  .character-archive-files { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .character-file-profile-hero { grid-template-columns: 215px minmax(240px, 1fr); }
   .character-file-status-stack { grid-column: 1 / -1; grid-template-columns: 180px minmax(0, 1fr); align-items: center; }
   .character-file-status-note.cr-sticky-note { min-height: 0; }

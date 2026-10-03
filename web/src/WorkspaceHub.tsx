@@ -43,7 +43,7 @@ const copy = {
   en: {
     title: "Workspace",
     subtitle: "Design tests, compose packs, and preserve reproducible experiment history.",
-    close: "Character Library",
+    close: "Back to Toolbox",
     scenarios: "Scenarios",
     packs: "Test Packs",
     experiments: "Experiments",
@@ -125,7 +125,7 @@ const copy = {
   "zh-CN": {
     title: "实验工作区",
     subtitle: "设计测试、组合测试包，并保留可复现的实验历史。",
-    close: "返回角色库",
+    close: "返回工具箱",
     scenarios: "测试场景",
     packs: "测试包",
     experiments: "实验历史",

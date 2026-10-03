@@ -8,6 +8,7 @@ import {
   type DiscordServerProfile,
   type PlatformConnection
 } from "./deploymentApi";
+import { Spinner } from "./components/ui";
 import { PaperDrawer } from "./NotebookUI";
 import { ServerStickerDictionary } from "./ServerStickerDictionary";
 import { browserTimezone, serverRuntimeApi } from "./serverRuntimeApi";
@@ -17,6 +18,7 @@ interface Props {
   profiles: DiscordServerProfile[];
   catalog: DiscordServerCatalog[];
   selectedProfileId: string;
+  loading: boolean;
   demoMode: boolean;
   zh: boolean;
   onSelectProfile: (profileId: string) => void;
@@ -54,6 +56,7 @@ export function DiscordServerProfilesPanel({
   profiles,
   catalog,
   selectedProfileId,
+  loading,
   demoMode,
   zh,
   onSelectProfile,
@@ -306,14 +309,20 @@ export function DiscordServerProfilesPanel({
                   </button>
                 </>
               )}
-              <button className="ink-button" onClick={openNew}>
+              <button className="ink-button" onClick={openNew} disabled={loading}>
                 {zh ? "+ 添加 Server" : "+ Add Server"}
               </button>
             </div>
           )}
         </div>
 
-        {profiles.length ? (
+        {loading ? (
+          <div className="server-workspace-placeholder large is-loading" role="status">
+            <Spinner size="sm" label={zh ? "正在读取 Server 工作区" : "Loading Server workspace"} />
+            <strong>{zh ? "正在读取 Server 工作区…" : "Loading Server workspace…"}</strong>
+            <p>{zh ? "正在核对 Server 配置、Connector 与可见频道。" : "Reading Server profiles, connector state, and visible channels."}</p>
+          </div>
+        ) : profiles.length ? (
           <div className="server-workspace-selector-row">
             <div className="server-workspace-current-card">
               <div className="server-workspace-icon" aria-hidden="true">#</div>

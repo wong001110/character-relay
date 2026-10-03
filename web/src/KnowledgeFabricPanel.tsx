@@ -24,12 +24,14 @@ import {
   type KnowledgeFabricSource
 } from "./knowledgeFabricApi";
 import { nextGlobalCorpusGrantEnabled } from "./knowledgeFabricPanelPolicy";
+import { serverAccessApi } from "./serverAccessApi";
 
 interface Props {
   profile: DiscordServerProfile | undefined;
   deployments: CharacterDeployment[];
   demoMode: boolean;
   zh: boolean;
+  onOpenAdministration?: () => void;
 }
 
 export function scopeMatchesProfile(
@@ -51,7 +53,7 @@ function isServerLocal(corpus: KnowledgeFabricCorpus): boolean {
   return corpus.owner_type === "server";
 }
 
-export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Props) {
+export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh, onOpenAdministration }: Props) {
   const [scope, setScope] = useState<KnowledgeFabricScope | null>(null);
   const [loadedProfileKey, setLoadedProfileKey] = useState("");
   const [corpora, setCorpora] = useState<KnowledgeFabricCorpus[]>([]);
@@ -70,6 +72,7 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
   const [inspectionQuery, setInspectionQuery] = useState("");
   const [inspectionMode, setInspectionMode] = useState("overview");
   const [inspection, setInspection] = useState<KnowledgeFabricQueryInspectorResult | null>(null);
+  const [canBootstrap, setCanBootstrap] = useState(false);
   const loadVersion = useRef(0);
 
   const currentProfileKey = profileKey(profile);
@@ -143,6 +146,24 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
   useEffect(() => {
     void load();
   }, [profile?.id, profile?.connection_id, profile?.guild_id]);
+
+  useEffect(() => {
+    if (demoMode) {
+      setCanBootstrap(false);
+      return;
+    }
+    let active = true;
+    void serverAccessApi.overview()
+      .then((overview) => {
+        if (active) setCanBootstrap(overview.is_super_admin === true);
+      })
+      .catch(() => {
+        if (active) setCanBootstrap(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [demoMode]);
 
   useEffect(() => {
     if (!activeScope || !selectedCorpus || !isServerLocal(selectedCorpus)) {
@@ -284,9 +305,14 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
         title={zh ? "此 Server 尚未启用 Knowledge Fabric" : "Knowledge Fabric is not bootstrapped for this server"}
         description={
           zh
-            ? "需要 Super Admin 先建立该 Server 的 Fabric scope；系统不会回退到旧 RAG。"
-            : "A Super Admin must bootstrap the Fabric server scope; this page never falls back to legacy RAG."
+            ? "需要 Super Admin 使用现有 Knowledge Fabric 管理页建立该 Server 的 Fabric scope；系统不会回退到旧 RAG。"
+            : "A Super Admin must bootstrap this Server in the existing Knowledge Fabric administration surface; this page never falls back to legacy RAG."
         }
+        action={canBootstrap && onOpenAdministration ? (
+          <Button type="button" variant="primary" onClick={onOpenAdministration}>
+            {zh ? "打开 Super Admin Knowledge Fabric" : "Open Super Admin Knowledge Fabric"}
+          </Button>
+        ) : undefined}
       />
     );
   }

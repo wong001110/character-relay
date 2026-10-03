@@ -31,6 +31,8 @@ import {
   characterRoutes,
   matchesPortalRoute,
   portalRoutes,
+  settingsRoute,
+  settingsRouteForSearch,
   workspaceSectionForPath
 } from "./portalRoutes";
 import { SettingsWorkspace } from "./SettingsWorkspace";
@@ -82,6 +84,7 @@ export default function App() {
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const section = workspaceSectionForPath(location.pathname) ?? "dashboard";
+  const settingsRouteState = settingsRouteForSearch(location.search);
   const characterRoute = characterRouteForPath(location.pathname);
   const routeCard = characterRoute?.cardId
     ? cards.find((card) => card.id === characterRoute.cardId) ?? null
@@ -460,6 +463,7 @@ export default function App() {
         cards={cards}
         initialCharacterId={deploymentCharacterId}
         demoMode={publicDemo}
+        onOpenKnowledgeAdmin={() => navigateTo(settingsRoute("administration", "knowledge"))}
       />,
       "deployments"
     );
@@ -487,6 +491,8 @@ export default function App() {
       <SettingsWorkspace
         user={user}
         publicDemo={publicDemo}
+        initialTab={settingsRouteState.tab}
+        initialAdministrationTab={settingsRouteState.administrationTab}
         onAdmin={openAdmin}
         onLogout={logout}
         onAccountDeleted={accountDeleted}
