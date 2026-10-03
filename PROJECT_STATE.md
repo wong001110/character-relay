@@ -6,15 +6,15 @@ Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6` (through merged PR #215) |
+| Repository / baseline | `wong001110/character-relay` / main `f243918043ae711d86ff27f38fce5bbaa556b98a` (through merged PR #217) |
 | Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
-| Current instruction | Execution mode for the explicitly requested Web Room general-attachment extension. Preserve the existing private claim-bound delivery path. Do not merge or deploy without a new explicit instruction. |
-| Development branch | `feat/web-room-general-attachments-20261003`; PR pending |
-| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; general-attachment implementation `aae9c1c48d7060bf5c85fa02b5616b8c5f0bc44c` |
-| Merge / production deploy | PR #214 and #215 are squash-merged. The general-attachment branch is not authorized to merge or deploy yet. No production data change is authorized. |
+| Current instruction | Execution mode for the explicitly requested Web Room reply-presentation rollback. The user authorized squash-merging both the general-attachment and reply changes to main. No manual production deployment was requested. |
+| Development branch | `fix/web-room-reply-link-20261003`; PR #218 |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; reply-link rollback branch pending verification |
+| Merge / production deploy | PR #214, #215 and #217 are squash-merged. PR #218 is explicitly authorized for squash merge after exact-head checks pass. No manual production deploy or production data change is authorized. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#215. General-attachment follow-up is in progress. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#217. Reply-presentation rollback is the remaining follow-up. |
 
 ## Baseline correction
 
@@ -146,13 +146,27 @@ Current implementation scope:
 - terminal delivery deletes private upload bytes; abandoned uploads remain TTL-bounded;
 - Connector claim binding, send idempotency and no-temporary-URL-in-LLM-prose guarantees are unchanged.
 
-Verification is pending on this branch; do not treat the implementation receipt as a passed CI result.
+PR #217 was squash-merged to main as `f243918043ae711d86ff27f38fce5bbaa556b98a`.
+Its exact application head `9c5483dbeb6d514eef650279aacdd0f648802085` passed GitHub CI run
+**37129794751**, Railway Smoke **37129794732**, and Public Demo Status Check **37129794747**
+before merge.
+
+## Web Room reply-link presentation rollback (2026-10-03)
+
+The user asked to restore the prior Discord message-link fallback instead of the newer visible
+`↪ Replying to <author>: <summary>` prose. This is presentation-only:
+- same-room reply target resolution remains required before webhook delivery;
+- `reply_to_message_id` remains structured RoomSource / Agent context evidence;
+- Web participant webhook display name/avatar remain unchanged;
+- Discord receives the prior `↪ https://discord.com/channels/.../<message>` line;
+- no native Discord Reply capability is claimed.
+
+Exact-head verification is pending on PR #218 before its authorized squash merge.
 
 ## Next concrete action
 
-Open a focused PR for the general-attachment branch, run exact-head Web/Connector/Python/PostgreSQL/
-Docker CI plus Railway/Public Demo checks, then record the results here. Keep the PR unmerged until
-the user explicitly requests merge. No manual production deploy is requested.
+Run exact-head CI, Railway Smoke and Public Demo checks for PR #218. If all pass, squash merge #218
+to main as explicitly authorized. No manual production deploy is requested.
 
 ## R3 implementation checkpoint (2026-10-01)
 

@@ -41,8 +41,8 @@ function oneLine(value: string, limit: number): string {
 
 export function webMessageText(claim: WebClaim, replyContext?: WebReplyContext | null): string {
   if (claim.reply_to_message_id && !replyContext) throw new Error("web_reply_context_required");
-  const reply = replyContext
-    ? `↪ Replying to ${oneLine(replyContext.display_name, 80) || "message"}: ${oneLine(replyContext.summary, 90) || "[No text content]"}\n`
+  const reply = claim.reply_to_message_id
+    ? `↪ https://discord.com/channels/${encodeURIComponent(claim.guild_id)}/${encodeURIComponent(claim.thread_id || claim.channel_id)}/${encodeURIComponent(claim.reply_to_message_id)}\n`
     : "";
   const content = `${reply}${claim.text}`;
   if (
