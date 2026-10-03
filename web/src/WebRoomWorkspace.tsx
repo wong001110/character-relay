@@ -572,8 +572,12 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             </span>
           </header>
           <p className="web-room-history-note">{tx(
-            "Latest 64 messages. Reconnect keeps the visible transcript mounted while fresh state arrives.",
-            "显示最近 64 条消息；重连时保留当前内容，收到新状态后原位更新。"
+            connection === "reconnecting"
+              ? "Latest 64 messages. Reconnecting live updates; sending remains available and the server will validate current room access."
+              : "Latest 64 messages. Reconnect keeps the visible transcript mounted while fresh state arrives.",
+            connection === "reconnecting"
+              ? "显示最近 64 条消息；实时更新正在重连，仍可发送，服务器会重新验证当前房间访问权。"
+              : "显示最近 64 条消息；重连时保留当前内容，收到新状态后原位更新。"
           )}</p>
 
           <div
@@ -776,7 +780,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   !room?.can_post ||
                   !profile ||
                   (!text.trim() && !stickerResourceKey && !attachments.length) ||
-                  connection !== "connected"
+                  !["connected", "reconnecting"].includes(connection)
                 }
               >
                 {tx("Send", "发送")}
