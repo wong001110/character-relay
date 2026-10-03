@@ -319,6 +319,11 @@ async def events(
                 except WebRoomError as exc:
                     yield "event: revoked\ndata: " + json.dumps({"reason": str(exc)}) + "\n\n"
                     break
+                except Exception:
+                    # A malformed historical source must not create an endless EventSource
+                    # reconnect loop. Preserve the client's last snapshot and stop cleanly.
+                    yield 'event: unavailable\ndata: {"reason":"snapshot_unavailable"}\n\n'
+                    break
                 data = json.dumps(snapshot, ensure_ascii=False)
                 digest = hashlib.sha256(data.encode()).hexdigest()
                 if digest != previous:
