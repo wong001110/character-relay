@@ -169,6 +169,14 @@ class SourceMessage(BaseModel):
         value = re.sub(r"<@!?\d+>", "@user", value)
         value = re.sub(r"<@&\d+>", "@role", value)
         value = re.sub(r"<#\d+>", "#channel", value)
+        if self.poll is not None:
+            options = "; ".join(
+                answer.text or answer.emoji_name or f"Option {answer.answer_id}"
+                for answer in self.poll.answers
+            )
+            value = (value + "\n" if value else "") + f"[Poll] {self.poll.question}"
+            if options:
+                value += f" Options: {options}"
         return value
 
     def draft_fingerprint(self) -> str:
