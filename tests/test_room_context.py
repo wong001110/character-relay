@@ -15,6 +15,7 @@ from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.room_context import RoomContextService, bind_requester
 from echo_masque.room_routing import RoomScope, SpeakerChoice
 from echo_masque.room_sources import (
+    SourceAttachment,
     SourceMention,
     SourceMessage,
     SourcePoll,
@@ -157,6 +158,76 @@ def test_poll_vote_counts_update_presentation_without_agent_revision(
     assert stored.message.poll is not None
     assert stored.message.poll.answers[0].vote_count == 4
     assert stored.message.model_text() == "[Poll] Tea? Options: Yes; No"
+
+
+
+
+def test_delete_clears_presentation_metadata_before_persisting(
+    rooms: RoomRepository,
+) -> None:
+    original = message(
+        attachments=(
+            SourceAttachment(
+                attachment_id="a1",
+                url="https://cdn.discordapp.com/attachments/a/image.png",
+                filename="image.png",
+                content_type="image/png",
+            ),
+        ),
+        reactions=(SourceReaction(key="unicode:😂", name="😂", count=1),),
+        pinned=True,
+        has_unseen_media=True,
+        media_fingerprint="a" * 64,
+    )
+    rooms.observe(SCOPE, [original])
+    rooms.observe(SCOPE, [message(deleted=True, text="")])
+    stored = rooms.get(SCOPE, "m1")
+    assert stored is not None
+    assert stored.message.deleted is True
+    assert stored.message.attachments == ()
+    assert stored.message.reactions == ()
+    assert stored.message.pinned is False
+    assert stored.message.has_unseen_media is False
+    assert stored.message.media_fingerprint == ""
+
+
+def test_historical_tombstone_with_presentation_is_sanitized_on_read(
+    rooms: RoomRepository,
+) -> None:
+    rooms.observe(SCOPE, [message()])
+    with rooms.database.session() as session:
+        record = session.get(RoomSourceRecord, rooms.get(SCOPE, "m1").message.draft_fingerprint())
+        if record is None:
+            record = session.scalar(
+                select(RoomSourceRecord).where(RoomSourceRecord.message_id == "m1")
+            )
+        assert record is not None
+        raw = json.loads(record.content_json)
+        raw.update(
+            {
+                "deleted": True,
+                "text": "",
+                "attachments": [
+                    {
+                        "attachment_id": "legacy",
+                        "url": "https://cdn.discordapp.com/attachments/a/legacy.png",
+                        "filename": "legacy.png",
+                        "content_type": "image/png",
+                    }
+                ],
+                "reactions": [{"key": "unicode:😂", "name": "😂", "count": 1}],
+                "pinned": True,
+            }
+        )
+        record.content_json = json.dumps(raw)
+        session.commit()
+
+    stored = rooms.get(SCOPE, "m1")
+    assert stored is not None
+    assert stored.message.deleted is True
+    assert stored.message.attachments == ()
+    assert stored.message.reactions == ()
+    assert stored.message.pinned is False
 
 
 
