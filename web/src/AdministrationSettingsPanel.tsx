@@ -13,15 +13,17 @@ import { deploymentApi, type PlatformConnection } from "./deploymentApi";
 import { KnowledgeFabricAdministrationPanel } from "./KnowledgeFabricAdministrationPanel";
 import { NotebookField, NotebookInput, NotebookSelect } from "./NotebookUI";
 import { Pagination } from "./Pagination";
+import type { AdministrationRouteTab } from "./portalRoutes";
 import {
   serverAccessApi,
   type AdminServerAccess
 } from "./serverAccessApi";
 
-type AdminTab = "users" | "servers" | "connector" | "knowledge";
+type AdminTab = AdministrationRouteTab;
 
 interface Props {
   user: AuthUser;
+  initialTab?: AdministrationRouteTab;
 }
 
 const ACCOUNT_PAGE_SIZE = 20;
@@ -143,8 +145,8 @@ function ServerAccountPicker({
   );
 }
 
-export function AdministrationSettingsPanel({ user }: Props) {
-  const [tab, setTab] = useState<AdminTab>("users");
+export function AdministrationSettingsPanel({ user, initialTab = "users" }: Props) {
+  const [tab, setTab] = useState<AdminTab>(initialTab);
   const [servers, setServers] = useState<AdminServerAccess[]>([]);
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [invitations, setInvitations] = useState<InvitationView[]>([]);
@@ -166,6 +168,10 @@ export function AdministrationSettingsPanel({ user }: Props) {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     let active = true;

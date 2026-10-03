@@ -41,6 +41,7 @@ interface Props {
   cards: CharacterCard[];
   initialCharacterId?: string | null;
   demoMode?: boolean;
+  onOpenKnowledgeAdmin?: () => void;
 }
 
 interface ChannelGroup {
@@ -224,7 +225,8 @@ function toggleSet(
 export function DeploymentCenter({
   cards,
   initialCharacterId = null,
-  demoMode = false
+  demoMode = false,
+  onOpenKnowledgeAdmin
 }: Props) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
@@ -755,12 +757,18 @@ export function DeploymentCenter({
           </div>
         </header>
 
-        <section className="server-passport-shell" aria-label={zh ? "Server 护照" : "Server passport"}>
+        <details className="server-passport-shell" aria-label={zh ? "Server 护照" : "Server passport"} open>
+          <summary className="server-passport-summary">
+            <span>SERVER PASSPORT</span>
+            <strong>{selectedWorkspaceProfile?.guild_name ?? (loading ? (zh ? "正在读取 Server…" : "Loading Server…") : (zh ? "Server 工作区" : "Server workspace"))}</strong>
+            <small>{zh ? "收起／展开 Server 资料" : "Collapse / expand server details"}</small>
+          </summary>
           <DiscordServerProfilesPanel
             connections={connections}
             profiles={serverProfiles}
             catalog={serverCatalog}
             selectedProfileId={selectedServerProfileId}
+            loading={loading}
             demoMode={demoMode}
             zh={zh}
             onSelectProfile={selectServerProfile}
@@ -795,7 +803,7 @@ export function DeploymentCenter({
               </dl>
             </div>
           )}
-        </section>
+        </details>
 
         <aside className="deployment-workspace-quote" aria-label={zh ? "工作区说明" : "Workspace note"}>
           <p>
@@ -824,7 +832,7 @@ export function DeploymentCenter({
           >
             <span aria-hidden="true">♙</span>
             <strong>{zh ? "角色部署" : "Characters"}</strong>
-            <small>{deploymentTotal}</small>
+            <small>{loading ? "…" : deploymentTotal}</small>
           </button>
           <button
             type="button"
@@ -1853,6 +1861,7 @@ export function DeploymentCenter({
               deployments={deployments}
               demoMode={demoMode}
               zh={zh}
+              onOpenAdministration={onOpenKnowledgeAdmin}
             />
           )}
 

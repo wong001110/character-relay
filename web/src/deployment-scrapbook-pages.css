@@ -990,6 +990,41 @@
   margin-bottom: 16px;
 }
 
+.portal-v2-page-frame .server-passport-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(93, 75, 108, .14);
+  border-radius: 8px;
+  background: rgba(255, 250, 241, .82);
+  color: #5d4e64;
+  cursor: pointer;
+  list-style: none;
+}
+
+.portal-v2-page-frame .server-passport-summary::-webkit-details-marker { display: none; }
+.portal-v2-page-frame .server-passport-summary::marker { content: ""; }
+.portal-v2-page-frame .server-passport-summary > span {
+  color: #775f7d;
+  font: 800 .58rem var(--portal-pencil, "Segoe Print", cursive);
+  letter-spacing: .11em;
+}
+.portal-v2-page-frame .server-passport-summary > strong {
+  min-width: 0;
+  overflow: hidden;
+  font: 700 .76rem var(--portal-pencil, "Segoe Print", cursive);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portal-v2-page-frame .server-passport-summary > small {
+  color: #67596d;
+  font-size: .6rem;
+}
+.portal-v2-page-frame .server-passport-shell:not([open]) .server-passport-summary { margin-bottom: 0; }
+
 .portal-v2-page-frame .server-passport-shell > .server-workspace-panel {
   margin-bottom: 0;
   padding-bottom: 14px;
@@ -2375,5 +2410,30 @@
   .portal-v2-page-frame .deployment-file-portrait {
     width: 68px;
     height: 80px;
+  }
+}
+
+/* Live-review contrast/loading refinements. */
+.portal-v2-page-frame .server-workspace-heading p:not(.tape-label),
+.portal-v2-page-frame .server-workspace-connection-copy small,
+.portal-v2-page-frame .server-workspace-connection-policy small,
+.portal-v2-page-frame .server-passport-meta dt {
+  color: #65566b;
+}
+.portal-v2-page-frame .server-workspace-placeholder.is-loading {
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-content: center;
+  text-align: left;
+}
+.portal-v2-page-frame .server-workspace-placeholder.is-loading .cr-spinner {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+@media (max-width: 760px) {
+  .portal-v2-page-frame .server-passport-summary {
+    grid-template-columns: 1fr auto;
+  }
+  .portal-v2-page-frame .server-passport-summary > span {
+    grid-column: 1 / -1;
   }
 }

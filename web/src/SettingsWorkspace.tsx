@@ -6,6 +6,7 @@ import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { AdministrationSettingsPanel } from "./AdministrationSettingsPanel";
 import { Button, FunctionalIcon, StickyLabel, StickyNote } from "./components/ui";
 import { useI18n } from "./i18n";
+import type { AdministrationRouteTab, SettingsWorkspaceTab } from "./portalRoutes";
 import { serverAccessApi, type ServerAccessOverview } from "./serverAccessApi";
 import { ServerAccessSettingsPanel } from "./ServerAccessSettingsPanel";
 import "./settings-access.css";
@@ -13,23 +14,25 @@ import "./settings-access.css";
 interface Props {
   user: AuthUser;
   publicDemo: boolean;
+  initialTab?: SettingsWorkspaceTab;
+  initialAdministrationTab?: AdministrationRouteTab;
   onAdmin: () => void;
   onLogout: () => Promise<void>;
   onAccountDeleted: () => void;
 }
 
-type SettingsTab = "account" | "server-access" | "administration";
-
 export function SettingsWorkspace({
   user,
   publicDemo,
+  initialTab = "account",
+  initialAdministrationTab = "users",
   onAdmin,
   onLogout,
   onAccountDeleted
 }: Props) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
-  const [tab, setTab] = useState<SettingsTab>("account");
+  const [tab, setTab] = useState<SettingsWorkspaceTab>(initialTab === "administration" ? "account" : initialTab);
   const [accessOverview, setAccessOverview] = useState<ServerAccessOverview | null>(null);
 
   useEffect(() => {
@@ -47,6 +50,15 @@ export function SettingsWorkspace({
   }, []);
 
   const superAdmin = accessOverview?.is_super_admin === true;
+
+  useEffect(() => {
+    if (initialTab !== "administration") {
+      setTab(initialTab);
+      return;
+    }
+    if (accessOverview === null) return;
+    setTab(superAdmin && !publicDemo ? "administration" : "account");
+  }, [accessOverview, initialTab, publicDemo, superAdmin]);
 
   return (
     <main className="settings-v2-page settings-v3-page settings-access-page">
@@ -149,7 +161,7 @@ export function SettingsWorkspace({
                   {zh ? "打开 Runtime 设置" : "Open Runtime Settings"}
                 </Button>
               </div>
-              <AdministrationSettingsPanel user={user} />
+              <AdministrationSettingsPanel user={user} initialTab={initialAdministrationTab} />
               <RoomRuntimeSettings zh={zh} />
             </>
           )}
