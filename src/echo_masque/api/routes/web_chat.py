@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -23,6 +23,8 @@ from echo_masque.web_rooms import (
     ProfileUpdate,
     ProfileView,
     WebDeliveryView,
+    WebExpressionView,
+    WebReactionInput,
     WebRoomDelivery,
     WebRoomError,
     WebRoomInput,
@@ -69,6 +71,13 @@ def update_profile(
     )
 
 
+@router.get("/rooms/{room_id}/expressions", response_model=list[WebExpressionView])
+def expressions(
+    room_id: str, request: Request, user: CurrentUserDependency
+) -> list[WebExpressionView]:
+    return _repo(request).expressions(room_id, user.id)
+
+
 @router.get("/rooms", response_model=list[WebRoomView])
 def rooms(request: Request, user: CurrentUserDependency) -> list[WebRoomView]:
     return _repo(request).list_rooms(user.id)
@@ -112,10 +121,21 @@ def revoke_member(
     _repo(request).member(room_id, user.id, user_id, None)
 
 
+def _message_summary(message: object) -> str:
+    text = str(getattr(message, "text", "") or "").strip().replace("\n", " ")
+    if text:
+        return text[:180] + ("…" if len(text) > 180 else "")
+    if getattr(message, "stickers", ()):
+        return "[Sticker]"
+    if getattr(message, "attachments", ()):
+        return "[Attachment]"
+    if getattr(message, "custom_emojis", ()):
+        return "[Emoji]"
+    return "[No text content]"
+
+
 def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, object]:
     room = repo.require(room_id, user_id, fresh=True)
-    # Full bounded snapshots prevent edit/delete and reconnect cursor gaps.
-    # There is no growing per-client feed queue.
     sources = sorted(
         repo.sources.recent(room_scope(room), limit=64),
         key=lambda item: (
@@ -123,34 +143,106 @@ def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, 
             item.message.message_id,
         ),
     )
+    by_id = {item.message.message_id: item for item in sources}
+    web_reactions = repo.reactions(room_id, user_id, list(by_id))
+    messages: list[dict[str, object]] = []
+    for item in sources:
+        message = item.message
+        reply_id = message.reply_to_message_id or message.response_to_message_id
+        reply_source = by_id.get(reply_id) if reply_id else None
+        if reply_id and reply_source is None:
+            reply_source = repo.sources.get(room_scope(room), reply_id)
+        reply_preview: dict[str, object] | None = None
+        if reply_id:
+            available = bool(
+                reply_source
+                and not reply_source.message.deleted
+                and reply_source.message.content_available
+            )
+            reply_preview = {
+                "message_id": reply_id,
+                "available": available,
+                "in_snapshot": reply_id in by_id,
+                "display_name": (
+                    reply_source.message.author_display_name if available and reply_source else ""
+                ),
+                "summary": (
+                    _message_summary(reply_source.message) if available and reply_source else ""
+                ),
+            }
+
+        reactions: dict[str, dict[str, Any]] = {}
+        for source_reaction in message.reactions:
+            reactions[source_reaction.key] = {
+                "key": source_reaction.key,
+                "resource_id": source_reaction.resource_id,
+                "name": source_reaction.name,
+                "animated": source_reaction.animated,
+                "asset_url": source_reaction.asset_url,
+                "discord_count": source_reaction.count,
+                "web_count": 0,
+                "mine": False,
+                "mine_profile_ids": [],
+            }
+        for web_reaction in web_reactions.get(message.message_id, []):
+            key = str(web_reaction["key"])
+            current = reactions.setdefault(
+                key,
+                {
+                    "key": key,
+                    "resource_id": web_reaction["resource_id"],
+                    "name": web_reaction["name"],
+                    "animated": web_reaction["animated"],
+                    "asset_url": web_reaction["asset_url"],
+                    "discord_count": 0,
+                    "web_count": 0,
+                    "mine": False,
+                    "mine_profile_ids": [],
+                },
+            )
+            raw_web_count = web_reaction.get("web_count", 0)
+            current["web_count"] = raw_web_count if isinstance(raw_web_count, int) else 0
+            current["mine"] = bool(web_reaction["mine"])
+            current["mine_profile_ids"] = web_reaction.get("mine_profile_ids", [])
+        for reaction_view in reactions.values():
+            reaction_view["count"] = int(reaction_view["discord_count"]) + int(
+                reaction_view["web_count"]
+            )
+
+        messages.append(
+            {
+                "id": message.message_id,
+                "author_id": message.author_id,
+                "display_name": message.author_display_name,
+                "avatar_url": message.author_avatar_url,
+                "actor_type": "web_participant"
+                if message.author_external_id
+                else "character"
+                if message.author_deployment_id
+                else "bot"
+                if message.author_is_bot
+                else "discord_user",
+                "text": message.text,
+                "deleted": message.deleted,
+                "content_available": message.content_available,
+                "created_at": message.created_at.isoformat() if message.created_at else None,
+                "edited_at": message.edited_at.isoformat() if message.edited_at else None,
+                "reply_to_message_id": reply_id,
+                "reply_preview": reply_preview,
+                "attachments": [entry.model_dump(mode="json") for entry in message.attachments],
+                "custom_emojis": [entry.model_dump(mode="json") for entry in message.custom_emojis],
+                "stickers": [entry.model_dump(mode="json") for entry in message.stickers],
+                "mentions": [entry.model_dump(mode="json") for entry in message.mentions],
+                "embeds": [entry.model_dump(mode="json") for entry in message.embeds],
+                "poll": message.poll.model_dump(mode="json") if message.poll is not None else None,
+                "reactions": list(reactions.values()),
+                "pinned": message.pinned,
+            }
+        )
     return {
         "room_id": room.id,
         "history_limit": 64,
-        "messages": [
-            {
-                "id": item.message.message_id,
-                "author_id": item.message.author_id,
-                "display_name": item.message.author_display_name,
-                "avatar_url": item.message.author_avatar_url,
-                "actor_type": "web_participant"
-                if item.message.author_external_id
-                else "character"
-                if item.message.author_deployment_id
-                else "bot"
-                if item.message.author_is_bot
-                else "discord_user",
-                "text": item.message.text,
-                "deleted": item.message.deleted,
-                "content_available": item.message.content_available,
-                "created_at": item.message.created_at.isoformat()
-                if item.message.created_at
-                else None,
-                "edited_at": item.message.edited_at.isoformat() if item.message.edited_at else None,
-                "reply_to_message_id": item.message.reply_to_message_id
-                or item.message.response_to_message_id,
-            }
-            for item in sources
-        ],
+        "messages": messages,
         "outbox": [item.model_dump(mode="json") for item in repo.outbox(room_id, user_id)],
     }
 
@@ -160,6 +252,28 @@ async def messages(
     room_id: str, request: Request, user: CurrentUserDependency
 ) -> dict[str, object]:
     return await asyncio.to_thread(_snapshot, _repo(request), room_id, user.id)
+
+
+@router.put("/rooms/{room_id}/messages/{message_id}/reactions", status_code=204)
+def add_reaction(
+    room_id: str,
+    message_id: str,
+    payload: WebReactionInput,
+    request: Request,
+    user: CurrentUserDependency,
+) -> None:
+    _repo(request).set_reaction(user.id, room_id, message_id, payload, enabled=True)
+
+
+@router.delete("/rooms/{room_id}/messages/{message_id}/reactions", status_code=204)
+def remove_reaction(
+    room_id: str,
+    message_id: str,
+    payload: WebReactionInput,
+    request: Request,
+    user: CurrentUserDependency,
+) -> None:
+    _repo(request).set_reaction(user.id, room_id, message_id, payload, enabled=False)
 
 
 @router.post("/rooms/{room_id}/messages", response_model=WebDeliveryView, status_code=202)

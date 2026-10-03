@@ -1,6 +1,7 @@
 /** Raw Discord evidence. No semantic segmentation, model calls, or cross-room ancestry. */
 import { ChannelType,PermissionFlagsBits,type Message } from "discord.js";
 import { createHash } from "node:crypto";
+import { parseCustomEmojiTokens } from "./expressionFlow.js";
 import type { DiscordContextMessage } from "./types.js";
 
 export interface RoomLocation {
@@ -10,6 +11,64 @@ export interface RoomLocation {
   category_id: string;
 }
 
+export interface RoomAttachment {
+  attachment_id: string;
+  url: string;
+  proxy_url: string;
+  filename: string;
+  description: string;
+  content_type: string;
+  size_bytes: number | null;
+  width: number | null;
+  height: number | null;
+}
+export interface RoomExpression {
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  asset_url: string;
+  format_type: string;
+  description: string;
+}
+export interface RoomMention {
+  kind: "user" | "role" | "channel";
+  target_id: string;
+  label: string;
+}
+export interface RoomEmbed {
+  embed_type: string;
+  url: string;
+  title: string;
+  description: string;
+  provider_name: string;
+  author_name: string;
+  image_url: string;
+  image_proxy_url: string;
+  thumbnail_url: string;
+  thumbnail_proxy_url: string;
+}
+export interface RoomPollAnswer {
+  answer_id: number;
+  text: string;
+  emoji_name: string;
+  emoji_id: string;
+  vote_count: number;
+}
+export interface RoomPoll {
+  question: string;
+  answers: RoomPollAnswer[];
+  allow_multiselect: boolean;
+  expires_at: string | null;
+  results_finalized: boolean;
+}
+export interface RoomReaction {
+  key: string;
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  asset_url: string;
+  count: number;
+}
 export interface RoomSource {
   message_id: string;
   channel_id: string;
@@ -28,6 +87,14 @@ export interface RoomSource {
   content_available: boolean;
   has_unseen_media: boolean;
   media_fingerprint?: string;
+  attachments?: RoomAttachment[];
+  custom_emojis?: RoomExpression[];
+  stickers?: RoomExpression[];
+  mentions?: RoomMention[];
+  embeds?: RoomEmbed[];
+  poll?: RoomPoll | null;
+  reactions?: RoomReaction[];
+  pinned?: boolean;
 }
 
 export interface RoomEvidence extends RoomLocation {
@@ -82,7 +149,86 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
   const contentAvailable = contentIntent || Boolean(message.content) ||
     message.author.id === message.client.user.id ||
     message.mentions.users.has(message.client.user.id) ||
-    Boolean(message.attachments.size || message.stickers.size || message.embeds.length);
+    Boolean(message.attachments.size || message.stickers.size || message.embeds.length || message.poll);
+  const customEmojis = parseCustomEmojiTokens(message.content).slice(0, 20).map(emoji => ({
+    resource_id: emoji.resource_id,
+    name: emoji.name,
+    animated: emoji.animated,
+    asset_url: `https://cdn.discordapp.com/emojis/${emoji.resource_id}.${emoji.animated ? "gif" : "png"}`,
+    format_type: emoji.animated ? "gif" : "png",
+    description: ""
+  }));
+  const attachments = [...message.attachments.values()].slice(0, 10).map(item => ({
+    attachment_id: item.id,
+    url: item.url,
+    proxy_url: item.proxyURL,
+    filename: item.name || "attachment",
+    description: item.description ?? "",
+    content_type: item.contentType ?? "",
+    size_bytes: item.size ?? null,
+    width: item.width ?? null,
+    height: item.height ?? null
+  }));
+  const stickers = [...message.stickers.values()].slice(0, 3).map(item => ({
+    resource_id: item.id,
+    name: item.name || "Sticker",
+    animated: false,
+    asset_url: item.url,
+    format_type: String(item.format),
+    description: item.description ?? ""
+  }));
+  const mentions: RoomMention[] = [
+    ...message.mentions.users.values()
+  ].slice(0, 30).map(user => ({
+    kind: "user" as const,
+    target_id: user.id,
+    label: message.mentions.members?.get(user.id)?.displayName ?? user.globalName ?? user.username
+  }));
+  for (const role of [...message.mentions.roles.values()].slice(0, 20)) {
+    mentions.push({kind: "role", target_id: role.id, label: role.name});
+  }
+  for (const channel of [...message.mentions.channels.values()].slice(0, 20)) {
+    const label = "name" in channel && typeof channel.name === "string" ? channel.name : "channel";
+    mentions.push({kind: "channel", target_id: channel.id, label});
+  }
+  const embeds: RoomEmbed[] = message.embeds.slice(0, 10).map(embed => ({
+    embed_type: embed.data.type ?? "",
+    url: embed.url ?? "",
+    title: embed.title ?? "",
+    description: embed.description ?? "",
+    provider_name: embed.provider?.name ?? "",
+    author_name: embed.author?.name ?? "",
+    image_url: embed.image?.url ?? "",
+    image_proxy_url: embed.image?.proxyURL ?? "",
+    thumbnail_url: embed.thumbnail?.url ?? "",
+    thumbnail_proxy_url: embed.thumbnail?.proxyURL ?? ""
+  }));
+  const poll: RoomPoll | null = message.poll?.question.text ? {
+    question: message.poll.question.text,
+    answers: [...message.poll.answers.values()].slice(0, 10).map(answer => ({
+      answer_id: answer.id,
+      text: answer.text ?? "",
+      emoji_name: answer.emoji?.name ?? "",
+      emoji_id: answer.emoji?.id ?? "",
+      vote_count: answer.voteCount
+    })),
+    allow_multiselect: Boolean(message.poll.allowMultiselect),
+    expires_at: message.poll.expiresAt?.toISOString() ?? null,
+    results_finalized: Boolean(message.poll.resultsFinalized)
+  } : null;
+  const reactions = [...message.reactions.cache.values()].slice(0, 40).map(reaction => {
+    const id = reaction.emoji.id ?? "";
+    const name = reaction.emoji.name ?? "reaction";
+    const animated = Boolean(reaction.emoji.animated);
+    return {
+      key: id ? `emoji:${id}` : `unicode:${name}`,
+      resource_id: id,
+      name,
+      animated,
+      asset_url: id ? `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}` : "",
+      count: reaction.count
+    };
+  });
   return {
     message_id: message.id,
     channel_id: location.channel_id,
@@ -101,13 +247,21 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
     edited_at: message.editedAt?.toISOString() ?? null,
     deleted: false,
     content_available: contentAvailable,
-    has_unseen_media: Boolean(message.attachments.size || message.embeds.length || message.stickers.size),
+    has_unseen_media: Boolean(message.attachments.size || message.embeds.length || message.stickers.size || message.poll),
     media_fingerprint: createHash("sha256").update(JSON.stringify({
       attachments: [...message.attachments.values()].map(a => [a.id, a.name, a.size, a.contentType]),
       stickers: [...message.stickers.keys()],
       embeds: message.embeds.map(e => [e.title, e.description, e.fields,
         e.image?.url?.split("?")[0], e.thumbnail?.url?.split("?")[0]])
-    })).digest("hex")
+    })).digest("hex"),
+    attachments,
+    custom_emojis: customEmojis,
+    stickers,
+    mentions,
+    embeds,
+    poll,
+    reactions,
+    pinned: message.pinned
   };
 }
 

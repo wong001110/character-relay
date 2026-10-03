@@ -45,6 +45,27 @@ class WebProfileRecord(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class WebReactionRecord(Base):
+    __tablename__ = "web_room_reactions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    room_id: Mapped[str] = mapped_column(String(64), index=True)
+    message_id: Mapped[str] = mapped_column(String(200), index=True)
+    user_id: Mapped[str] = mapped_column(String(120), index=True)
+    profile_id: Mapped[str] = mapped_column(String(64), index=True)
+    emoji_key: Mapped[str] = mapped_column(String(240))
+    emoji_name: Mapped[str] = mapped_column(String(160))
+    emoji_id: Mapped[str] = mapped_column(String(200), default="")
+    animated: Mapped[bool] = mapped_column(Boolean, default=False)
+    asset_url: Mapped[str] = mapped_column(String(3000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (
+        UniqueConstraint(
+            "room_id", "message_id", "profile_id", "emoji_key",
+            name="uq_web_room_reaction_profile",
+        ),
+    )
+
+
 class WebOutboxRecord(Base):
     __tablename__ = "web_room_outbox"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

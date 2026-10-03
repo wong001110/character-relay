@@ -75,13 +75,15 @@ log("Discord event reporter started.", {
 const intents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMessagePolls,
     GatewayIntentBits.GuildExpressions
 ];
 if (config.messageContentIntent)
     intents.push(GatewayIntentBits.MessageContent);
 const client = new Client({
     intents,
-    partials: [Partials.Channel, Partials.Message]
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction]
 });
 interface CollectedDiscordTurn {
     source: Message<true>;
@@ -2406,6 +2408,23 @@ function observeDeletedMessage(message: Message | import("discord.js").PartialMe
         edited_at: null, deleted: true, content_available: false, has_unseen_media: false
     }, () => checkRoomAccess(message));
 }
+async function observeReactionMessage(message: Message | import("discord.js").PartialMessage): Promise<void> {
+    try {
+        const fresh = message.partial ? await message.fetch() : message;
+        if (fresh.inGuild()) observeIncomingMessage(fresh);
+    }
+    catch (error) {
+        log("Reaction state needs a fresh message read before Web Room publication.", {
+            messageId: message.id, ...safeDiagnosticError(error)
+        });
+    }
+}
+client.on(Events.MessageReactionAdd, reaction => { void observeReactionMessage(reaction.message); });
+client.on(Events.MessageReactionRemove, reaction => { void observeReactionMessage(reaction.message); });
+client.on(Events.MessageReactionRemoveAll, message => { void observeReactionMessage(message); });
+client.on(Events.MessageReactionRemoveEmoji, reaction => { void observeReactionMessage(reaction.message); });
+client.on(Events.MessagePollVoteAdd, answer => { void observeReactionMessage(answer.poll.message); });
+client.on(Events.MessagePollVoteRemove, answer => { void observeReactionMessage(answer.poll.message); });
 client.on(Events.MessageDelete, observeDeletedMessage);
 client.on(Events.MessageBulkDelete, messages => {
     for (const message of messages.values())
@@ -2474,6 +2493,12 @@ async function shutdown(signal: string): Promise<void> {
     client.removeAllListeners(Events.MessageCreate);
     client.removeAllListeners(Events.MessageUpdate);
     client.removeAllListeners(Events.MessageDelete);
+    client.removeAllListeners(Events.MessageReactionAdd);
+    client.removeAllListeners(Events.MessageReactionRemove);
+    client.removeAllListeners(Events.MessageReactionRemoveAll);
+    client.removeAllListeners(Events.MessageReactionRemoveEmoji);
+    client.removeAllListeners(Events.MessagePollVoteAdd);
+    client.removeAllListeners(Events.MessagePollVoteRemove);
     client.removeAllListeners(Events.MessageBulkDelete);
     relay.stopTurnJobs();
     await turnIngress.shutdown(true);

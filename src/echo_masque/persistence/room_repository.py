@@ -123,6 +123,21 @@ class RoomRepository:
                             item = item.model_copy(
                                 update={"author_deployment_id": old.author_deployment_id}
                             )
+                    # Presentation-only enrichment (avatar/name/pin/reaction counts) is visible
+                    # to Web Room clients but must not advance Agent source versions or
+                    # invalidate a generated Character draft.
+                    if old.draft_fingerprint() == item.draft_fingerprint():
+                        if not item.response_to_message_id and old.response_to_message_id:
+                            item = item.model_copy(
+                                update={
+                                    "response_to_message_id": old.response_to_message_id,
+                                    "response_delivery_complete": old.response_delivery_complete,
+                                }
+                            )
+                        if old != item:
+                            record.content_json = item.model_dump_json()
+                            session.flush()
+                        continue
                     if not item.response_to_message_id and old.response_to_message_id:
                         item = item.model_copy(
                             update={

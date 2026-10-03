@@ -41,7 +41,25 @@ def web(tmp_path: Path):
                             "type": "text",
                         }
                     ],
-                    "stickers": [],
+                    "emojis": [
+                        {
+                            "emoji_id": "emoji-1",
+                            "name": "wave",
+                            "animated": False,
+                            "available": True,
+                            "asset_url": "https://cdn.discordapp.com/emojis/emoji-1.png",
+                        }
+                    ],
+                    "stickers": [
+                        {
+                            "sticker_id": "sticker-1",
+                            "name": "smile",
+                            "description": "Smiling sticker",
+                            "tags": ["smile"],
+                            "format_type": "png",
+                            "asset_url": "https://cdn.discordapp.com/stickers/sticker-1.png",
+                        }
+                    ],
                 }
             ],
         },
@@ -476,3 +494,164 @@ def test_transport_requires_secret_and_profile_api_rejects_legacy_identity(web):
         ).status_code
         == 404
     )
+
+
+def test_room_expression_picker_is_guild_scoped(web):
+    _, client, _, _, room, _ = web
+    result = client.get(f"/api/web-chat/rooms/{room}/expressions")
+    assert result.status_code == 200, result.text
+    resources = {item["resource_key"]: item for item in result.json()}
+    assert resources["emoji:emoji-1"]["name"] == "wave"
+    assert resources["sticker:sticker-1"]["name"] == "smile"
+    assert all(
+        item["asset_url"].startswith("https://cdn.discordapp.com/")
+        for item in resources.values()
+    )
+
+
+def test_snapshot_preserves_media_reactions_and_reply_preview(web):
+    _, client, _, _, room, _ = web
+    observe(
+        web,
+        [
+            source(
+                "parent",
+                text="Look at this <:wave:emoji-1>",
+                custom_emojis=[
+                    {
+                        "resource_id": "emoji-1",
+                        "name": "wave",
+                        "asset_url": "https://cdn.discordapp.com/emojis/emoji-1.png",
+                    }
+                ],
+                attachments=[
+                    {
+                        "attachment_id": "attachment-1",
+                        "url": "https://cdn.discordapp.com/attachments/a/image.png",
+                        "proxy_url": "https://media.discordapp.net/attachments/a/image.png",
+                        "filename": "image.png",
+                        "description": "Cat image",
+                        "content_type": "image/png",
+                        "size_bytes": 1234,
+                        "width": 320,
+                        "height": 240,
+                    }
+                ],
+                stickers=[
+                    {
+                        "resource_id": "sticker-1",
+                        "name": "smile",
+                        "asset_url": "https://cdn.discordapp.com/stickers/sticker-1.png",
+                        "format_type": "png",
+                    }
+                ],
+                mentions=[
+                    {"kind": "user", "target_id": "human-2", "label": "Bob"},
+                    {"kind": "channel", "target_id": "channel-2", "label": "memes"},
+                ],
+                embeds=[
+                    {
+                        "embed_type": "rich",
+                        "url": "https://example.com/post",
+                        "title": "Preview",
+                        "description": "Preview description",
+                        "provider_name": "Example",
+                        "image_url": "https://example.com/image.png",
+                        "image_proxy_url": "https://media.discordapp.net/external/image.png",
+                    }
+                ],
+                poll={
+                    "question": "Tea?",
+                    "answers": [
+                        {"answer_id": 1, "text": "Yes", "vote_count": 3},
+                        {"answer_id": 2, "text": "No", "vote_count": 1},
+                    ],
+                    "allow_multiselect": False,
+                    "results_finalized": False,
+                },
+                reactions=[
+                    {"key": "unicode:😂", "name": "😂", "count": 2},
+                ],
+                pinned=True,
+            ),
+            source(
+                "child",
+                text="reply",
+                reply_to_message_id="parent",
+            ),
+        ],
+    )
+    rows = client.get(f"/api/web-chat/rooms/{room}/messages").json()["messages"]
+    parent = next(item for item in rows if item["id"] == "parent")
+    child = next(item for item in rows if item["id"] == "child")
+    assert parent["attachments"][0]["filename"] == "image.png"
+    assert parent["custom_emojis"][0]["name"] == "wave"
+    assert parent["stickers"][0]["name"] == "smile"
+    assert parent["mentions"][0]["label"] == "Bob"
+    assert parent["embeds"][0]["image_proxy_url"].startswith("https://media.discordapp.net/")
+    assert parent["poll"]["question"] == "Tea?"
+    assert parent["poll"]["answers"][0]["vote_count"] == 3
+    assert parent["reactions"][0]["discord_count"] == 2
+    assert parent["pinned"] is True
+    assert child["reply_preview"] == {
+        "message_id": "parent",
+        "available": True,
+        "in_snapshot": True,
+        "display_name": "Human",
+        "summary": "Look at this <:wave:emoji-1>",
+    }
+
+
+def test_web_reactions_are_profile_bound_and_not_discord_identity(web):
+    _, client, _, _, room, profile = web
+    observe(web, [source()])
+    payload = {
+        "profile_id": profile["id"],
+        "emoji_key": "emoji:emoji-1",
+        "emoji_name": "forged-name",
+    }
+    result = client.put(
+        f"/api/web-chat/rooms/{room}/messages/human-1/reactions",
+        json=payload,
+    )
+    assert result.status_code == 204, result.text
+    row = client.get(f"/api/web-chat/rooms/{room}/messages").json()["messages"][0]
+    reaction = next(item for item in row["reactions"] if item["key"] == "emoji:emoji-1")
+    assert reaction["name"] == "wave"
+    assert reaction["web_count"] == 1
+    assert reaction["discord_count"] == 0
+    assert reaction["mine_profile_ids"] == [profile["id"]]
+
+    result = client.request(
+        "DELETE",
+        f"/api/web-chat/rooms/{room}/messages/human-1/reactions",
+        json=payload,
+    )
+    assert result.status_code == 204, result.text
+    row = client.get(f"/api/web-chat/rooms/{room}/messages").json()["messages"][0]
+    assert all(item["key"] != "emoji:emoji-1" for item in row["reactions"])
+
+
+def test_sticker_only_send_is_validated_and_claimed_with_server_resource(web):
+    result = send(
+        web,
+        key="sticker-only",
+        text="",
+        sticker_resource_key="sticker:sticker-1",
+    )
+    assert result.status_code == 202, result.text
+    assert result.json()["sticker_resource_key"] == "sticker:sticker-1"
+    item = claim(web)
+    assert item["sticker_name"] == "smile"
+    assert item["sticker_asset_url"].startswith("https://cdn.discordapp.com/")
+    assert item["sticker_format_type"] == "png"
+
+
+def test_unknown_sticker_resource_is_rejected_before_outbox(web):
+    result = send(
+        web,
+        key="missing-sticker",
+        text="",
+        sticker_resource_key="sticker:not-in-this-guild",
+    )
+    assert result.status_code == 422

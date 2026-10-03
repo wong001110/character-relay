@@ -8,12 +8,85 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.room_routing import RoomMessage, RoomScope
+
+
+class SourceAttachment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    attachment_id: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=3000)
+    proxy_url: str = Field(default="", max_length=3000)
+    filename: str = Field(default="attachment", max_length=255)
+    description: str = Field(default="", max_length=1024)
+    content_type: str = Field(default="", max_length=160)
+    size_bytes: int | None = Field(default=None, ge=0)
+    width: int | None = Field(default=None, ge=0)
+    height: int | None = Field(default=None, ge=0)
+
+
+class SourceExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    animated: bool = False
+    asset_url: str = Field(default="", max_length=3000)
+    format_type: str = Field(default="", max_length=40)
+    description: str = Field(default="", max_length=1000)
+
+
+class SourceMention(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: str = Field(pattern="^(user|role|channel)$")
+    target_id: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=160)
+
+
+class SourceEmbed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    embed_type: str = Field(default="", max_length=80)
+    url: str = Field(default="", max_length=3000)
+    title: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=2000)
+    provider_name: str = Field(default="", max_length=200)
+    author_name: str = Field(default="", max_length=200)
+    image_url: str = Field(default="", max_length=3000)
+    image_proxy_url: str = Field(default="", max_length=3000)
+    thumbnail_url: str = Field(default="", max_length=3000)
+    thumbnail_proxy_url: str = Field(default="", max_length=3000)
+
+
+class SourcePollAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    answer_id: int = Field(ge=0, le=100)
+    text: str = Field(default="", max_length=300)
+    emoji_name: str = Field(default="", max_length=160)
+    emoji_id: str = Field(default="", max_length=200)
+    vote_count: int = Field(default=0, ge=0)
+
+
+class SourcePoll(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    question: str = Field(min_length=1, max_length=300)
+    answers: tuple[SourcePollAnswer, ...] = Field(default=(), max_length=10)
+    allow_multiselect: bool = False
+    expires_at: datetime | None = None
+    results_finalized: bool = False
+
+
+class SourceReaction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    key: str = Field(min_length=1, max_length=240)
+    resource_id: str = Field(default="", max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    animated: bool = False
+    asset_url: str = Field(default="", max_length=3000)
+    count: int = Field(default=0, ge=0)
 
 
 class SourceMessage(BaseModel):
@@ -42,6 +115,14 @@ class SourceMessage(BaseModel):
     content_available: bool = True
     has_unseen_media: bool = False
     media_fingerprint: str = Field(default="", max_length=64)
+    attachments: tuple[SourceAttachment, ...] = Field(default=(), max_length=10)
+    custom_emojis: tuple[SourceExpression, ...] = Field(default=(), max_length=20)
+    stickers: tuple[SourceExpression, ...] = Field(default=(), max_length=3)
+    mentions: tuple[SourceMention, ...] = Field(default=(), max_length=50)
+    embeds: tuple[SourceEmbed, ...] = Field(default=(), max_length=10)
+    poll: SourcePoll | None = None
+    reactions: tuple[SourceReaction, ...] = Field(default=(), max_length=40)
+    pinned: bool = False
 
     @model_validator(mode="after")
     def validate_observation(self) -> SourceMessage:
@@ -53,12 +134,50 @@ class SourceMessage(BaseModel):
             raise ValueError("Only a verified bot message has a deployment identity.")
         if self.deleted and self.text:
             raise ValueError("A tombstone must not retain message content.")
+        if self.deleted and (
+            self.attachments
+            or self.custom_emojis
+            or self.stickers
+            or self.mentions
+            or self.embeds
+            or self.poll is not None
+            or self.reactions
+        ):
+            raise ValueError("A tombstone must not retain presentation content.")
         if not self.content_available and self.text:
             raise ValueError("Unavailable content must not be serialized as readable evidence.")
         for timestamp in (self.created_at, self.edited_at):
             if timestamp is not None and timestamp.tzinfo is None:
                 raise ValueError("Source timestamps must include their original timezone.")
         return self
+
+    def model_text(self) -> str:
+        """Readable chat prose for models; UI-only Discord IDs stay out of prompts."""
+        value = re.sub(r"<a?:([A-Za-z0-9_]+):\d+>", r":\1:", self.text)
+        for mention in self.mentions:
+            token = (
+                f"<#{mention.target_id}>"
+                if mention.kind == "channel"
+                else f"<@&{mention.target_id}>"
+                if mention.kind == "role"
+                else f"<@{mention.target_id}>"
+            )
+            prefix = "#" if mention.kind == "channel" else "@"
+            value = value.replace(token, prefix + mention.label)
+            if mention.kind == "user":
+                value = value.replace(f"<@!{mention.target_id}>", f"@{mention.label}")
+        value = re.sub(r"<@!?\d+>", "@user", value)
+        value = re.sub(r"<@&\d+>", "@role", value)
+        value = re.sub(r"<#\d+>", "#channel", value)
+        if self.poll is not None:
+            options = "; ".join(
+                answer.text or answer.emoji_name or f"Option {answer.answer_id}"
+                for answer in self.poll.answers
+            )
+            value = (value + "\n" if value else "") + f"[Poll] {self.poll.question}"
+            if options:
+                value += f" Options: {options}"
+        return value
 
     def draft_fingerprint(self) -> str:
         """Content/identity changes matter; display-name or timestamp enrichment does not."""
@@ -74,6 +193,13 @@ class SourceMessage(BaseModel):
             self.content_available,
             self.has_unseen_media,
             self.media_fingerprint,
+            {
+                "poll": self.poll.question,
+                "answers": [answer.text for answer in self.poll.answers],
+                "allow_multiselect": self.poll.allow_multiselect,
+            }
+            if self.poll is not None
+            else None,
         ]
         return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
@@ -100,7 +226,7 @@ class SourceMessage(BaseModel):
                 else "human"
             ),
             author_deployment_id=self.author_deployment_id or None,
-            text=self.text[:4000],
+            text=self.model_text()[:4000],
             version=revision,
             reply_to_message_id=self.reply_to_message_id or None,
             response_to_message_id=self.response_to_message_id or None,

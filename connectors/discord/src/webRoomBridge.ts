@@ -10,6 +10,7 @@ export interface WebRoom {
 export interface WebClaim {
   id: string; room_id: string; claim_nonce: string; profile_id: string; actor_id: string;
   display_name: string; avatar_url: string; text: string; reply_to_message_id: string;
+  sticker_resource_key?: string; sticker_name?: string; sticker_asset_url?: string; sticker_format_type?: string;
   guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
   discord_message_id: string; created_at: string;
 }
@@ -33,7 +34,7 @@ export function webMessageText(claim: WebClaim): string {
     ? `↪ https://discord.com/channels/${encodeURIComponent(claim.guild_id)}/${encodeURIComponent(claim.thread_id || claim.channel_id)}/${encodeURIComponent(claim.reply_to_message_id)}\n`
     : "";
   const content = `${reply}${claim.text}`;
-  if (!claim.text.trim() || content.length > 2000) throw new Error("web_message_too_long_or_empty");
+  if ((!claim.text.trim() && !claim.sticker_resource_key) || content.length > 2000) throw new Error("web_message_too_long_or_empty");
   return content;
 }
 
@@ -48,7 +49,7 @@ export function webSendFailure(error: unknown): WebAck {
 /** Testable send transaction: ACK retry is allowed; sending twice is never an ACK repair. */
 export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTransport, effects: {
   canSend: () => Promise<boolean>;
-  send: (content: string) => Promise<{id: string; webhook_id: string; created_at: string}>;
+  send: (content: string, claim: WebClaim) => Promise<{id: string; webhook_id: string; created_at: string}>;
 }): Promise<void> {
   if (!(await effects.canSend()) || !(await transport.preflightWebMessage(claim)).allowed) {
     await transport.acknowledgeWebMessage(claim, {status: "cancelled", reason: "send_preflight_denied"});
@@ -62,7 +63,7 @@ export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTra
   }
   let result: WebAck;
   try {
-    const receipt = await effects.send(content);
+    const receipt = await effects.send(content, claim);
     if (!receipt.id || receipt.webhook_id !== claim.webhook_id) throw new Error("invalid_send_receipt");
     result = {status: "delivered", message_id: receipt.id, webhook_id: receipt.webhook_id,
       created_at: receipt.created_at};
@@ -75,6 +76,26 @@ export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTra
       await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
+}
+
+async function stickerAttachment(claim: WebClaim): Promise<{attachment: Buffer; name: string} | null> {
+  if (!claim.sticker_resource_key) return null;
+  if (!claim.sticker_asset_url || ["3", "lottie"].includes((claim.sticker_format_type ?? "").toLowerCase())) {
+    throw Object.assign(new Error("web_sticker_not_renderable"), {status: 422});
+  }
+  const url = new URL(claim.sticker_asset_url ?? "");
+  if (url.protocol !== "https:" || !["cdn.discordapp.com", "media.discordapp.net"].includes(url.hostname)) {
+    throw Object.assign(new Error("web_sticker_asset_untrusted"), {status: 422});
+  }
+  const response = await fetch(url, {signal: AbortSignal.timeout(8_000)});
+  if (!response.ok) throw new Error("web_sticker_fetch_failed");
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > 8 * 1024 * 1024) throw Object.assign(new Error("web_sticker_too_large"), {status: 422});
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw Object.assign(new Error("web_sticker_too_large"), {status: 422});
+  const format = (claim.sticker_format_type ?? "").toLowerCase();
+  const extension = format.includes("gif") || format === "2" ? "gif" : "png";
+  return {attachment: bytes, name: `${claim.sticker_name || "sticker"}.${extension}`};
 }
 
 type RoomChannel = Message<true>["channel"];
@@ -174,12 +195,17 @@ export class WebRoomBridge {
           }
           return true;
         },
-        send: async content => {
-          // discord.js Execute Webhook requests wait=true and returns the actual Message receipt.
-          const message = await hook.send({content, username: claim.display_name,
+        send: async (content, currentClaim) => {
+          const sticker = await stickerAttachment(currentClaim);
+          // discord.js Execute Webhook waits for and returns the actual Message receipt.
+          const message = await hook.send({
+            ...(content ? {content} : {}),
+            ...(sticker ? {files: [sticker]} : {}),
+            username: claim.display_name,
             ...(claim.avatar_url ? {avatarURL: claim.avatar_url} : {}),
             ...(room.thread_id ? {threadId: room.thread_id} : {}),
-            allowedMentions: {parse: [], repliedUser: false}});
+            allowedMentions: {parse: [], repliedUser: false}
+          });
           return {id: message.id, webhook_id: message.webhook_id ?? "", created_at: message.timestamp};
         }
       });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { webRoomApi, unmatchedOutbox, type WebSnapshot } from "./webRoomApi";
+import { snapshotForRoomTransition, webRoomApi, unmatchedOutbox, type WebSnapshot } from "./webRoomApi";
 describe("web room client contracts", () => {
  afterEach(() => vi.unstubAllGlobals());
  it("posts a stable idempotency key, owned profile and exact escaped room using the session", async () => {
@@ -12,8 +12,15 @@ describe("web room client contracts", () => {
   expect(fetcher.mock.calls[0][1].body).not.toContain("webhook");
  });
  it("keeps unconfirmed sends but removes the receipt when its echo is present", () => {
-  const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as WebSnapshot;
+  const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as unknown as WebSnapshot;
   expect(unmatchedOutbox(snapshot).map(item => item.id)).toEqual(["two"]);
+ });
+ it("preserves the current room while reconnecting but clears on a real room change", () => {
+  const current = {room_id:"room-a",history_limit:64,messages:[{id:"m1"}],outbox:[]} as unknown as WebSnapshot;
+  expect(snapshotForRoomTransition(current, "room-a")).toBe(current);
+  expect(snapshotForRoomTransition(current, "room-b")).toEqual({
+   room_id:"",history_limit:64,messages:[],outbox:[]
+  });
  });
  it("uses a same-origin stream URL without a token in the URL", () => {
   expect(webRoomApi.eventsUrl("r/1")).toBe("/api/web-chat/rooms/r%2F1/events");

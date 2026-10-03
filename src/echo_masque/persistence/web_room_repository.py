@@ -6,9 +6,10 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from threading import RLock
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,12 +18,14 @@ from echo_masque.persistence.deployment_models import (
     DiscordServerCatalogRecord,
     PlatformConnectionRecord,
 )
+from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.models import UserRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.web_room_models import (
     WebOutboxRecord,
     WebProfileRecord,
+    WebReactionRecord,
     WebRoomMemberRecord,
     WebRoomRecord,
 )
@@ -30,6 +33,8 @@ from echo_masque.web_rooms import (
     ProfileInput,
     ProfileView,
     WebDeliveryView,
+    WebExpressionView,
+    WebReactionInput,
     WebRoomDelivery,
     WebRoomError,
     WebRoomInput,
@@ -76,6 +81,31 @@ def delivery_view(record: WebOutboxRecord) -> WebDeliveryView:
             "created_at": _aware(record.created_at),
             "routing_status": record.routing_status,
         }
+    )
+
+
+def _expression(
+    session: Session,
+    room: WebRoomRecord,
+    resource_key: str,
+    *,
+    resource_type: str | None = None,
+) -> DiscordExpressionSemanticRecord | None:
+    kind, separator, resource_id = resource_key.partition(":")
+    if not separator or kind not in {"emoji", "sticker"} or not resource_id:
+        return None
+    if resource_type is not None and kind != resource_type:
+        return None
+    return session.scalar(
+        select(DiscordExpressionSemanticRecord).where(
+            DiscordExpressionSemanticRecord.owner_id == room.owner_id,
+            DiscordExpressionSemanticRecord.connection_id == room.connection_id,
+            DiscordExpressionSemanticRecord.guild_id == room.guild_id,
+            DiscordExpressionSemanticRecord.resource_type == kind,
+            DiscordExpressionSemanticRecord.resource_id == resource_id,
+            DiscordExpressionSemanticRecord.available.is_(True),
+            DiscordExpressionSemanticRecord.enabled.is_(True),
+        )
     )
 
 
@@ -289,6 +319,140 @@ class WebRoomRepository:
                 )
             ]
 
+    def expressions(self, room_id: str, user_id: str) -> list[WebExpressionView]:
+        room = self.require(room_id, user_id)
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(DiscordExpressionSemanticRecord)
+                .where(
+                    DiscordExpressionSemanticRecord.owner_id == room.owner_id,
+                    DiscordExpressionSemanticRecord.connection_id == room.connection_id,
+                    DiscordExpressionSemanticRecord.guild_id == room.guild_id,
+                    DiscordExpressionSemanticRecord.available.is_(True),
+                    DiscordExpressionSemanticRecord.enabled.is_(True),
+                )
+                .order_by(
+                    DiscordExpressionSemanticRecord.resource_type,
+                    DiscordExpressionSemanticRecord.name,
+                    DiscordExpressionSemanticRecord.resource_id,
+                )
+                .limit(1000)
+            ).all()
+            return [
+                WebExpressionView(
+                    resource_key=f"{row.resource_type}:{row.resource_id}",
+                    resource_type=row.resource_type,  # type: ignore[arg-type]
+                    resource_id=row.resource_id,
+                    name=row.name,
+                    animated=row.animated,
+                    asset_url=row.asset_url,
+                    format_type=row.format_type,
+                    description=row.description,
+                )
+                for row in rows
+            ]
+
+    def set_reaction(
+        self,
+        user_id: str,
+        room_id: str,
+        message_id: str,
+        payload: WebReactionInput,
+        *,
+        enabled: bool,
+    ) -> None:
+        room = self.require(room_id, user_id, post=True, fresh=True)
+        source = self.sources.get(room_scope(room), message_id)
+        if source is None or source.message.deleted or not source.message.content_available:
+            raise WebRoomError("reaction_source_unavailable", 422)
+        with self.lock, self.database.session() as session:
+            profile = session.get(WebProfileRecord, payload.profile_id)
+            if profile is None or profile.owner_id != user_id:
+                raise WebRoomError("profile_unavailable", 404)
+            emoji_id = ""
+            animated = False
+            asset_url = ""
+            emoji_name = payload.emoji_name.strip()
+            if payload.emoji_key.startswith("emoji:"):
+                resource = _expression(session, room, payload.emoji_key, resource_type="emoji")
+                if resource is None:
+                    raise WebRoomError("reaction_emoji_unavailable", 422)
+                emoji_id = resource.resource_id
+                emoji_name = resource.name
+                animated = resource.animated
+                asset_url = resource.asset_url
+            elif payload.emoji_key.startswith("unicode:"):
+                emoji_name = emoji_name or payload.emoji_key.removeprefix("unicode:")
+                if (
+                    not emoji_name
+                    or len(emoji_name) > 32
+                    or any(character.isspace() or ord(character) < 32 for character in emoji_name)
+                ):
+                    raise WebRoomError("reaction_emoji_invalid", 422)
+            else:
+                raise WebRoomError("reaction_emoji_invalid", 422)
+            reaction_id = _hash([room_id, message_id, profile.id, payload.emoji_key])
+            existing = session.get(WebReactionRecord, reaction_id)
+            if enabled:
+                if existing is None:
+                    session.add(
+                        WebReactionRecord(
+                            id=reaction_id,
+                            room_id=room_id,
+                            message_id=message_id,
+                            user_id=user_id,
+                            profile_id=profile.id,
+                            emoji_key=payload.emoji_key,
+                            emoji_name=emoji_name,
+                            emoji_id=emoji_id,
+                            animated=animated,
+                            asset_url=asset_url,
+                        )
+                    )
+            elif existing is not None:
+                session.delete(existing)
+            session.commit()
+
+    def reactions(
+        self, room_id: str, user_id: str, message_ids: list[str]
+    ) -> dict[str, list[dict[str, object]]]:
+        self.require(room_id, user_id)
+        if not message_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(WebReactionRecord)
+                .where(
+                    WebReactionRecord.room_id == room_id,
+                    WebReactionRecord.message_id.in_(message_ids[:64]),
+                )
+                .order_by(WebReactionRecord.message_id, WebReactionRecord.emoji_key)
+            ).all()
+        grouped: dict[str, dict[str, dict[str, Any]]] = {}
+        for row in rows:
+            by_key = grouped.setdefault(row.message_id, {})
+            item = by_key.setdefault(
+                row.emoji_key,
+                {
+                    "key": row.emoji_key,
+                    "resource_id": row.emoji_id,
+                    "name": row.emoji_name,
+                    "animated": row.animated,
+                    "asset_url": row.asset_url,
+                    "web_count": 0,
+                    "mine": False,
+                    "mine_profile_ids": [],
+                },
+            )
+            item["web_count"] = int(item["web_count"]) + 1
+            item["mine"] = bool(item["mine"]) or row.user_id == user_id
+            if row.user_id == user_id:
+                profile_ids = item["mine_profile_ids"]
+                assert isinstance(profile_ids, list)
+                if row.profile_id not in profile_ids:
+                    profile_ids.append(row.profile_id)
+        return {message_id: list(values.values()) for message_id, values in grouped.items()}
+
     def save_profile(
         self, user_id: str, payload: ProfileInput, profile_id: str = "", expected_version: int = 0
     ) -> ProfileView:
@@ -346,6 +510,13 @@ class WebRoomRepository:
             profile = session.get(WebProfileRecord, payload.profile_id)
             if profile is None or profile.owner_id != user_id:
                 raise WebRoomError("profile_unavailable", 404)
+            if payload.sticker_resource_key and _expression(
+                session,
+                room,
+                payload.sticker_resource_key,
+                resource_type="sticker",
+            ) is None:
+                raise WebRoomError("sticker_unavailable", 422)
             if payload.reply_to_message_id:
                 target = self.sources.get(room_scope(room), payload.reply_to_message_id)
                 if target is None or target.message.deleted or not target.message.content_available:
@@ -391,6 +562,7 @@ class WebRoomRepository:
                         "avatar_url": profile.avatar_url,
                         "text": payload.text,
                         "reply_to_message_id": payload.reply_to_message_id,
+                        "sticker_resource_key": payload.sticker_resource_key,
                     },
                     ensure_ascii=False,
                 ),
@@ -418,6 +590,36 @@ class WebRoomRepository:
                     .limit(32)
                 )
             ]
+
+    def delete_owner(self, owner_id: str) -> dict[str, int]:
+        with self.lock, self.database.session() as session:
+            owned_room_ids = list(
+                session.scalars(select(WebRoomRecord.id).where(WebRoomRecord.owner_id == owner_id))
+            )
+            counts: dict[str, int] = {}
+            if owned_room_ids:
+                for key, model in (
+                    ("web_room_reactions", WebReactionRecord),
+                    ("web_room_outbox", WebOutboxRecord),
+                    ("web_room_members", WebRoomMemberRecord),
+                ):
+                    result = session.execute(delete(model).where(model.room_id.in_(owned_room_ids)))
+                    counts[key] = int(getattr(result, "rowcount", 0) or 0)
+                result = session.execute(
+                    delete(WebRoomRecord).where(WebRoomRecord.id.in_(owned_room_ids))
+                )
+                counts["web_rooms"] = int(getattr(result, "rowcount", 0) or 0)
+            user_deletions: tuple[tuple[str, Any, Any], ...] = (
+                ("web_reactions_by_user", WebReactionRecord, WebReactionRecord.user_id),
+                ("web_outbox_by_user", WebOutboxRecord, WebOutboxRecord.owner_id),
+                ("web_room_memberships", WebRoomMemberRecord, WebRoomMemberRecord.user_id),
+                ("web_profiles", WebProfileRecord, WebProfileRecord.owner_id),
+            )
+            for key, model, column in user_deletions:
+                result = session.execute(delete(model).where(column == owner_id))
+                counts[key] = counts.get(key, 0) + int(getattr(result, "rowcount", 0) or 0)
+            session.commit()
+            return counts
 
     def connector_rooms(self, connection_id: str) -> list[WebRoomRecord]:
         with self.database.session() as session:
@@ -475,11 +677,20 @@ class WebRoomRepository:
                 if _aware(row.created_at) < now - timedelta(minutes=5):
                     row.status, row.reason = "failed", "queue_expired"
                     continue
+                view = delivery_view(row)
+                sticker = None
+                if view.sticker_resource_key:
+                    sticker = _expression(
+                        session, room, view.sticker_resource_key, resource_type="sticker"
+                    )
+                    if sticker is None:
+                        row.status, row.reason = "failed", "sticker_unavailable"
+                        continue
                 row.status, row.claim_nonce, row.claimed_at = "claimed", nonce, now
                 row.webhook_id = room.webhook_id
                 session.commit()
                 return WebRoomDelivery(
-                    **delivery_view(row).model_dump(),
+                    **view.model_dump(),
                     room_id=room.id,
                     claim_nonce=nonce,
                     guild_id=room.guild_id,
@@ -487,6 +698,9 @@ class WebRoomRepository:
                     thread_id=room.thread_id,
                     webhook_id=room.webhook_id,
                     actor_id=f"web:{row.profile_id}",
+                    sticker_name=sticker.name if sticker is not None else "",
+                    sticker_asset_url=sticker.asset_url if sticker is not None else "",
+                    sticker_format_type=sticker.format_type if sticker is not None else "",
                 )
             session.commit()
             return None
@@ -496,7 +710,13 @@ class WebRoomRepository:
             row = session.get(WebOutboxRecord, record_id)
             room = session.get(WebRoomRecord, row.room_id) if row else None
             if row and room:
-                target_id = json.loads(row.payload_json)["reply_to_message_id"]
+                payload = json.loads(row.payload_json)
+                target_id = payload["reply_to_message_id"]
+                sticker_key = payload.get("sticker_resource_key", "")
+                if sticker_key and _expression(
+                    session, room, sticker_key, resource_type="sticker"
+                ) is None:
+                    return False
                 if target_id:
                     target = self.sources.get(room_scope(room), target_id)
                     if (
