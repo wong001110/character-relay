@@ -14,11 +14,11 @@ from threading import RLock
 from uuid import uuid4
 from weakref import WeakKeyDictionary
 
+from pydantic import ValidationError
 from sqlalchemy import JSON, Engine, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
-from pydantic import ValidationError
 
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.database import Database
