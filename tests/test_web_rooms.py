@@ -503,7 +503,10 @@ def test_room_expression_picker_is_guild_scoped(web):
     resources = {item["resource_key"]: item for item in result.json()}
     assert resources["emoji:emoji-1"]["name"] == "wave"
     assert resources["sticker:sticker-1"]["name"] == "smile"
-    assert all(item["asset_url"].startswith("https://cdn.discordapp.com/") for item in resources.values())
+    assert all(
+        item["asset_url"].startswith("https://cdn.discordapp.com/")
+        for item in resources.values()
+    )
 
 
 def test_snapshot_preserves_media_reactions_and_reply_preview(web):
