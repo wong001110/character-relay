@@ -59,18 +59,23 @@ Required direction:
 - preserve the existing distinction that Web-profile reactions are Web identities and do not
   silently impersonate native Discord reactions.
 
-### 5. Web Room image attachments
+### 5. Web Room general attachments
 
-User requested Discord-like image sending from the Web Room.
+The user explicitly expanded the earlier image-only scope to Discord-style file attachments.
 
 Accepted bounded scope:
-- upload local PNG/JPEG/WebP/GIF images from the composer;
-- maximum 4 images per message and 8 MiB per image;
-- validate actual image bytes server-side instead of trusting the browser MIME type;
-- keep uploaded bytes private and short-lived using the existing generated-media artifact store;
-- bind Connector download to the exact room outbox claim; do not expose a public media URL;
-- send the files through the existing Discord Webhook delivery transaction so text/reply/image remain one logical message;
-- do not add general-purpose arbitrary file hosting in this follow-up.
+- select or drag up to 4 attachments per message, maximum 8 MiB each;
+- paste clipboard files when the browser exposes them;
+- support validated images plus common text, PDF, Office, archive, audio and video formats;
+- do not accept arbitrary executable/script formats merely because the browser supplies a MIME type;
+- validate image bytes server-side; for other files require an allowed filename extension plus a compatible declared MIME type;
+- keep uploaded bytes private and short-lived in the existing generated-media artifact store;
+- bind Connector download to the exact room outbox claim; do not expose a public upload URL;
+- deliver all attachments through the existing Discord Webhook `files` transaction;
+- retain local thumbnail previews for images; render non-image uploads as attachment chips/cards;
+- remove private temporary bytes when delivery becomes terminal; abandoned uploads remain TTL-bounded and opportunistically purged;
+- attachment resources remain structured media evidence and are never appended to LLM prose as temporary URLs/base64.
+
 
 ## Already fixed and to regression-check
 
@@ -84,9 +89,3 @@ Accepted bounded scope:
 Accumulate additional real-use findings here first. Prefer fixing shared state-model causes over
 isolated UI patches. Do not expand into unrelated Discord parity features during this pass.
 
-### 5. Discord-style image attachments
-
-- select, paste or drag up to four PNG/JPEG/WebP/GIF images into the composer;
-- render a local preview before send while keeping upload bytes private;
-- deliver through Discord webhook files rather than message URLs;
-- remove private temporary bytes when delivery reaches a terminal receipt; abandoned uploads remain TTL-bounded and are opportunistically purged.

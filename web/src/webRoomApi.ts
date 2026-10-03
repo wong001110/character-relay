@@ -26,10 +26,17 @@ export function snapshotForRoomTransition(current: WebSnapshot, roomId: string):
 export function webRoomCanSubmit(connection: string): boolean {
   return connection === "connected" || connection === "reconnecting";
 }
+export const WEB_ROOM_ATTACHMENT_ACCEPT = [
+  "image/*", "audio/*", "video/*",
+  ".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml",
+  ".pdf", ".rtf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".zip", ".gz", ".tar", ".7z", ".rar"
+].join(",");
+
 const path = (id: string) => `/api/web-chat/rooms/${encodeURIComponent(id)}`;
 
-async function uploadImage(id: string, file: File): Promise<WebUpload> {
-  if (file.size > 8 * 1024 * 1024) throw new Error("image_too_large");
+async function uploadAttachment(id: string, file: File): Promise<WebUpload> {
+  if (file.size > 8 * 1024 * 1024) throw new Error("attachment_too_large");
   const response = await fetch(`${path(id)}/attachments`, {
     method: "POST",
     credentials: "same-origin",
@@ -65,7 +72,7 @@ export const webRoomApi = {
   revoke: (id: string, userId: string) => roomRequest<void>(`${path(id)}/members/${encodeURIComponent(userId)}`, {method: "DELETE"}),
   snapshot: (id: string) => roomRequest<WebSnapshot>(`${path(id)}/messages`),
   expressions: (id: string) => roomRequest<WebExpression[]>(`${path(id)}/expressions`),
-  uploadImage,
+  uploadAttachment,
   react: (id: string, messageId: string, data: WebReactionInput) => roomRequest<void>(
     `${path(id)}/messages/${encodeURIComponent(messageId)}/reactions`,
     {method: "PUT", body: JSON.stringify(data)}

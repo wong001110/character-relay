@@ -6,15 +6,15 @@ Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `b44ced4b67dc7713dae895a5c75a534213c7f49e` (through merged PR #214) |
+| Repository / baseline | `wong001110/character-relay` / main `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6` (through merged PR #215) |
 | Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
-| Current instruction | Execution mode for bounded defects found during live Web Room use. The user explicitly authorized this reconnect-send hotfix and its squash merge to main after checks. No manual production deployment was requested. |
-| Development branch | `fix/web-room-reconnect-send-20261003`; PR #215 |
-| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; reconnect-send hotfix source `08c65900453ee649ebc5061e98995bb4a728c9e6` |
-| Merge / production deploy | PR #214 is squash-merged. PR #215 is explicitly authorized for squash merge after exact-head checks pass. No manual production deploy or production data change is authorized. |
+| Current instruction | Execution mode for the explicitly requested Web Room general-attachment extension. Preserve the existing private claim-bound delivery path. Do not merge or deploy without a new explicit instruction. |
+| Development branch | `feat/web-room-general-attachments-20261003`; PR pending |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; general-attachment implementation `aae9c1c48d7060bf5c85fa02b5616b8c5f0bc44c` |
+| Merge / production deploy | PR #214 and #215 are squash-merged. The general-attachment branch is not authorized to merge or deploy yet. No production data change is authorized. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#214. Live follow-up remains in progress through PR #215. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#215. General-attachment follow-up is in progress. |
 
 ## Baseline correction
 
@@ -128,12 +128,31 @@ Exact application-code evidence for `08c65900453ee649ebc5061e98995bb4a728c9e6`:
 - Public Demo Status Check **37120464292** passed.
 - This evidence is self-reviewed CI evidence. No manual production deployment was performed.
 
+## Web Room general-attachment extension (2026-10-03)
+
+The user explicitly widened Web → Discord uploads from image-only to common Discord-style file
+attachments. Branch `feat/web-room-general-attachments-20261003` reuses the existing private
+GeneratedMediaArtifact + claim-bound Connector download + webhook `files` transaction rather than
+adding public file hosting or another delivery path.
+
+Current implementation scope:
+- up to four attachments per message, 8 MiB each;
+- PNG/JPEG/WebP/GIF still receive actual image-byte validation and local thumbnail previews;
+- common text, PDF, Office, archive, audio and video extensions are allowlisted with compatible MIME
+  checks; executable/script extensions are not accepted as generic opaque uploads;
+- select, drag/drop and clipboard-file ingress share one upload path;
+- non-image uploads render as attachment chips before send and as the existing file-card presentation
+  after Discord observation;
+- terminal delivery deletes private upload bytes; abandoned uploads remain TTL-bounded;
+- Connector claim binding, send idempotency and no-temporary-URL-in-LLM-prose guarantees are unchanged.
+
+Verification is pending on this branch; do not treat the implementation receipt as a passed CI result.
+
 ## Next concrete action
 
-PR #215 is the authorized squash-merge vehicle for this hotfix. After its exact docs-only head
-repeats the required gates and reaches main, continue user-owned live observation of reconnect/send
-behavior. No manual production deploy is requested. Free Token Pool Director quality evaluation
-remains a separate user-owned live check.
+Open a focused PR for the general-attachment branch, run exact-head Web/Connector/Python/PostgreSQL/
+Docker CI plus Railway/Public Demo checks, then record the results here. Keep the PR unmerged until
+the user explicitly requests merge. No manual production deploy is requested.
 
 ## R3 implementation checkpoint (2026-10-01)
 
