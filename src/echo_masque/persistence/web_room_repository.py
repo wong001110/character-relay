@@ -9,7 +9,7 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from echo_masque.persistence.deployment_models import (
 )
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.models import UserRecord
+from echo_masque.persistence.room_models import RoomSourceRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.web_room_models import (
@@ -29,6 +30,7 @@ from echo_masque.persistence.web_room_models import (
     WebRoomMemberRecord,
     WebRoomRecord,
 )
+from echo_masque.room_sources import scope_key
 from echo_masque.web_rooms import (
     ProfileInput,
     ProfileView,
@@ -579,13 +581,28 @@ class WebRoomRepository:
             return delivery_view(row)
 
     def outbox(self, room_id: str, user_id: str) -> list[WebDeliveryView]:
-        self.require(room_id, user_id)
+        room = self.require(room_id, user_id)
+        source_scope_id = scope_key(room_scope(room))
+        observed_echo = exists(
+            select(RoomSourceRecord.id).where(
+                RoomSourceRecord.scope_id == source_scope_id,
+                RoomSourceRecord.message_id == WebOutboxRecord.discord_message_id,
+            )
+        )
         with self.database.session() as session:
             return [
                 delivery_view(row)
                 for row in session.scalars(
                     select(WebOutboxRecord)
-                    .where(WebOutboxRecord.room_id == room_id, WebOutboxRecord.owner_id == user_id)
+                    .where(
+                        WebOutboxRecord.room_id == room_id,
+                        WebOutboxRecord.owner_id == user_id,
+                        or_(
+                            WebOutboxRecord.status != "delivered",
+                            WebOutboxRecord.discord_message_id == "",
+                            ~observed_echo,
+                        ),
+                    )
                     .order_by(WebOutboxRecord.created_at.desc())
                     .limit(32)
                 )

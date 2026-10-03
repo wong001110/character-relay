@@ -18,6 +18,7 @@ export interface WebAck {
   status: "delivered" | "failed" | "uncertain" | "cancelled";
   message_id?: string; webhook_id?: string; created_at?: string; reason?: string;
 }
+export interface WebReplyContext { display_name: string; summary: string; }
 export interface WebBridgeTransport {
   webRooms(): Promise<WebRoom[]>;
   registerWebRoomWebhook(roomId: string, webhookId: string): Promise<void>;
@@ -29,9 +30,14 @@ export interface WebBridgeTransport {
   observeRoom(input: RoomEvidence): Promise<unknown>;
 }
 
-export function webMessageText(claim: WebClaim): string {
-  const reply = claim.reply_to_message_id
-    ? `↪ https://discord.com/channels/${encodeURIComponent(claim.guild_id)}/${encodeURIComponent(claim.thread_id || claim.channel_id)}/${encodeURIComponent(claim.reply_to_message_id)}\n`
+function oneLine(value: string, limit: number): string {
+  return value.trim().replace(/\s+/g, " ").slice(0, limit);
+}
+
+export function webMessageText(claim: WebClaim, replyContext?: WebReplyContext | null): string {
+  if (claim.reply_to_message_id && !replyContext) throw new Error("web_reply_context_required");
+  const reply = replyContext
+    ? `↪ Replying to ${oneLine(replyContext.display_name, 80) || "message"}: ${oneLine(replyContext.summary, 90) || "[No text content]"}\n`
     : "";
   const content = `${reply}${claim.text}`;
   if ((!claim.text.trim() && !claim.sticker_resource_key) || content.length > 2000) throw new Error("web_message_too_long_or_empty");
@@ -49,14 +55,24 @@ export function webSendFailure(error: unknown): WebAck {
 /** Testable send transaction: ACK retry is allowed; sending twice is never an ACK repair. */
 export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTransport, effects: {
   canSend: () => Promise<boolean>;
+  resolveReply?: (claim: WebClaim) => Promise<WebReplyContext | null>;
   send: (content: string, claim: WebClaim) => Promise<{id: string; webhook_id: string; created_at: string}>;
 }): Promise<void> {
   if (!(await effects.canSend()) || !(await transport.preflightWebMessage(claim)).allowed) {
     await transport.acknowledgeWebMessage(claim, {status: "cancelled", reason: "send_preflight_denied"});
     return;
   }
+  let replyContext: WebReplyContext | null = null;
+  if (claim.reply_to_message_id) {
+    try { replyContext = await effects.resolveReply?.(claim) ?? null; }
+    catch { replyContext = null; }
+    if (!replyContext) {
+      await transport.acknowledgeWebMessage(claim, {status: "cancelled", reason: "reply_source_unavailable"});
+      return;
+    }
+  }
   let content: string;
-  try { content = webMessageText(claim); }
+  try { content = webMessageText(claim, replyContext); }
   catch {
     await transport.acknowledgeWebMessage(claim, {status: "failed", reason: "message_invalid"});
     return;
@@ -188,12 +204,21 @@ export class WebRoomBridge {
         canSend: async () => {
           const channel = await this.channel(room);
           const access = await checkRoomAccess({channel, guild: channel.guild});
-          if (!access.writable) return false;
-          if (claim.reply_to_message_id) {
-            const parent = await channel.messages.fetch({message: claim.reply_to_message_id, force: true, cache: false}).catch(() => null);
-            if (!parent || parent.channelId !== (room.thread_id || room.channel_id)) return false;
-          }
-          return true;
+          return access.writable;
+        },
+        resolveReply: async currentClaim => {
+          if (!currentClaim.reply_to_message_id) return null;
+          const channel = await this.channel(room);
+          const parent = await channel.messages.fetch({
+            message: currentClaim.reply_to_message_id, force: true, cache: false
+          }).catch(() => null);
+          if (!parent || parent.channelId !== (room.thread_id || room.channel_id)) return null;
+          const summary = oneLine(parent.content, 90)
+            || (parent.stickers.size ? "[Sticker]" : parent.attachments.size ? "[Attachment]" : "[No text content]");
+          return {
+            display_name: oneLine(parent.member?.displayName ?? parent.author.globalName ?? parent.author.username, 80),
+            summary
+          };
         },
         send: async (content, currentClaim) => {
           const sticker = await stickerAttachment(currentClaim);

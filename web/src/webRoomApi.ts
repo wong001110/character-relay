@@ -41,11 +41,29 @@ export const webRoomApi = {
     `${path(id)}/messages/${encodeURIComponent(messageId)}/reactions`,
     {method: "DELETE", body: JSON.stringify(data)}
   ),
-  send: (id: string, data: WebSend) => roomRequest<WebOutbox>(`${path(id)}/messages`, {method: "POST", body: JSON.stringify(data)}),
+  send: (id: string, data: WebSend) => roomRequest<WebOutbox>(`${path(id)}/messages`, {
+    method: "POST",
+    body: JSON.stringify(data),
+    signal: AbortSignal.timeout(15_000)
+  }),
   eventsUrl: (id: string) => `${path(id)}/events`
 };
 /** A Discord echo and its local receipt are one visible message. Keep unresolved sends explicit. */
 export function unmatchedOutbox(snapshot: WebSnapshot): WebOutbox[] {
   const ids = new Set(snapshot.messages.map(message => message.id));
   return snapshot.outbox.filter(item => !item.discord_message_id || !ids.has(item.discord_message_id));
+}
+
+/** Surface a successful POST immediately; SSE is convergence, not acknowledgement. */
+export function withAcceptedOutbox(snapshot: WebSnapshot, roomId: string, accepted: WebOutbox): WebSnapshot {
+  if (snapshot.room_id !== roomId) return snapshot;
+  return {
+    ...snapshot,
+    outbox: [
+      accepted,
+      ...snapshot.outbox.filter(item =>
+        item.id !== accepted.id && item.client_message_id !== accepted.client_message_id
+      )
+    ].slice(0, 32)
+  };
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { snapshotForRoomTransition, webRoomApi, unmatchedOutbox, type WebSnapshot } from "./webRoomApi";
+import { snapshotForRoomTransition, webRoomApi, unmatchedOutbox, withAcceptedOutbox, type WebSnapshot } from "./webRoomApi";
 describe("web room client contracts", () => {
  afterEach(() => vi.unstubAllGlobals());
  it("posts a stable idempotency key, owned profile and exact escaped room using the session", async () => {
@@ -10,6 +10,13 @@ describe("web room client contracts", () => {
   expect(fetcher.mock.calls[0][1].credentials).toBe("same-origin");
   expect(fetcher.mock.calls[0][1].body).toBe(fetcher.mock.calls[1][1].body);
   expect(fetcher.mock.calls[0][1].body).not.toContain("webhook");
+ });
+ it("surfaces a successful POST immediately without waiting for SSE", () => {
+  const snapshot = {room_id:"r",history_limit:64,messages:[],outbox:[{id:"old",client_message_id:"old"}]} as unknown as WebSnapshot;
+  const accepted = {id:"new",client_message_id:"stable-key",status:"pending"} as unknown as WebSnapshot["outbox"][number];
+  const next = withAcceptedOutbox(snapshot, "r", accepted);
+  expect(next.outbox.map(item => item.id)).toEqual(["new","old"]);
+  expect(withAcceptedOutbox(snapshot, "other", accepted)).toBe(snapshot);
  });
  it("keeps unconfirmed sends but removes the receipt when its echo is present", () => {
   const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as unknown as WebSnapshot;

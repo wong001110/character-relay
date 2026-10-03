@@ -7,6 +7,7 @@ import { WebRoomMessage } from "./WebRoomMessage";
 import {
   snapshotForRoomTransition,
   unmatchedOutbox,
+  withAcceptedOutbox,
   webRoomApi,
   type WebExpression,
   type WebMember,
@@ -297,8 +298,9 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     setError("");
     setLocalSubmission({ ...pending, phase: "submitting" });
     try {
-      await webRoomApi.send(pending.room, pending.payload);
-      setLocalSubmission({ ...pending, phase: "accepted" });
+      const accepted = await webRoomApi.send(pending.room, pending.payload);
+      setSnapshot(current => withAcceptedOutbox(current, pending.room, accepted));
+      setLocalSubmission(null);
       setText("");
       setReply("");
       setStickerResourceKey("");

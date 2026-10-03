@@ -33,6 +33,32 @@ Required direction:
   context;
 - never make a presentation fallback URL part of Agent conversational prose.
 
+### 3. Accepted send can leave the composer blocked
+
+The browser keeps a separate local submission until the SSE snapshot contains the same client
+message ID. If the POST has already returned 202 but that SSE update is delayed or missed, the
+composer remains disabled and later clicks appear to do nothing.
+
+Required direction:
+- treat the successful POST receipt as the acknowledgement boundary and surface it locally at once;
+- keep SSE as convergence with server state rather than a prerequisite for re-enabling the composer;
+- bound the POST wait so a stalled request becomes an explicit unknown result with the existing
+  idempotent safe-retry path instead of leaving the UI blocked indefinitely;
+- do not resend automatically after an unknown network effect.
+
+### 4. Discord reaction changes can miss Web Room
+
+The accepted optimization requires the Connector to re-fetch the exact Discord message after every
+reaction event. The current handler only re-fetches partial messages and otherwise trusts the cached
+Message object, so a Discord reaction can remain absent from the Web Room snapshot.
+
+Required direction:
+- force-fetch the exact message for add/remove/remove-all/remove-emoji reaction events before
+  publishing Room evidence;
+- publish aggregate Discord counts as presentation-only state;
+- preserve the existing distinction that Web-profile reactions are Web identities and do not
+  silently impersonate native Discord reactions.
+
 ## Already fixed and to regression-check
 
 - historical malformed Discord tombstones no longer break SSE/reactions;

@@ -35,9 +35,26 @@ describe("web participant one-shot send", () => {
    const {transport, effects} = fixture(); vi.mocked(transport.acknowledgeWebMessage).mockRejectedValue(new Error("db down"));
    await expect(deliverWebMessage(claim, transport, effects)).rejects.toThrow("db down"); expect(effects.send).toHaveBeenCalledTimes(1);
  });
- it("builds native-thread source links without pretending to issue a native Reply", () => {
-   expect(webMessageText({...claim,thread_id:"thread1",reply_to_message_id:"target1"})).toBe("↪ https://discord.com/channels/guild1/thread1/target1\nHello @everyone");
+ it("uses a bounded readable reply fallback instead of a bare Discord URL", () => {
+   const replyClaim = {...claim,thread_id:"thread1",reply_to_message_id:"target1"};
+   expect(webMessageText(replyClaim,{display_name:"Bob",summary:"Earlier message"})).toBe("↪ Replying to Bob: Earlier message\nHello @everyone");
+   expect(() => webMessageText(replyClaim)).toThrow("web_reply_context_required");
    expect(() => webMessageText({...claim, text:"x".repeat(2001)})).toThrow();
+ });
+ it("cancels a reply when the referenced source cannot be resolved", async () => {
+   const {transport, effects} = fixture();
+   const replyClaim = {...claim, reply_to_message_id:"target1"};
+   const replyEffects = {...effects, resolveReply: vi.fn().mockResolvedValue(null)};
+   await deliverWebMessage(replyClaim, transport, replyEffects);
+   expect(replyEffects.send).not.toHaveBeenCalled();
+   expect(transport.acknowledgeWebMessage).toHaveBeenCalledWith(replyClaim, {status:"cancelled",reason:"reply_source_unavailable"});
+ });
+ it("sends reply fallback text from the resolved parent context", async () => {
+   const {transport, effects} = fixture();
+   const replyClaim = {...claim, reply_to_message_id:"target1"};
+   const replyEffects = {...effects, resolveReply: vi.fn().mockResolvedValue({display_name:"Bob",summary:"Earlier message"})};
+   await deliverWebMessage(replyClaim, transport, replyEffects);
+   expect(replyEffects.send).toHaveBeenCalledWith("↪ Replying to Bob: Earlier message\nHello @everyone", replyClaim);
  });
  it("supports a validated sticker-only webhook effect without inventing text", async () => {
    const {transport, effects} = fixture();

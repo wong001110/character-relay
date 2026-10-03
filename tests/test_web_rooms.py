@@ -408,6 +408,43 @@ def test_gateway_before_ack_then_duplicate_echo_has_one_canonical_web_identity(w
     assert selected.requester_id == ""
 
 
+def test_delivered_receipt_stays_retired_after_echo_leaves_recent_history(web):
+    _, client, _, _, room, _ = web
+    send(web)
+    item = claim(web)
+    assert ack(web, item).status_code == 200
+    observe(
+        web,
+        [
+            source(
+                "discord-web-1",
+                author_id="web-hook",
+                author_display_name="Little Dragon",
+                author_is_bot=True,
+                webhook_id="web-hook",
+                text="Ann, hello",
+            )
+        ],
+    )
+    assert client.get(f"/api/web-chat/rooms/{room}/messages").json()["outbox"] == []
+
+    base = datetime.now(UTC)
+    observe(
+        web,
+        [
+            source(
+                f"new-{index:03d}",
+                text=f"new {index}",
+                created_at=(base + timedelta(seconds=index + 1)).isoformat(),
+            )
+            for index in range(64)
+        ],
+    )
+    snapshot = client.get(f"/api/web-chat/rooms/{room}/messages").json()
+    assert "discord-web-1" not in {message["id"] for message in snapshot["messages"]}
+    assert snapshot["outbox"] == []
+
+
 def test_web_receipt_does_not_authorize_other_channel_or_forged_external_identity(web):
     _, client, connection, _, _, _ = web
     send(web)

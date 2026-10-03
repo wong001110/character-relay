@@ -2410,7 +2410,9 @@ function observeDeletedMessage(message: Message | import("discord.js").PartialMe
 }
 async function observeReactionMessage(message: Message | import("discord.js").PartialMessage): Promise<void> {
     try {
-        const fresh = message.partial ? await message.fetch() : message;
+        // Reaction deltas can arrive against an otherwise complete cached Message. Always fetch
+        // the exact message so Web Room receives authoritative aggregate counts, not cache timing.
+        const fresh = await message.fetch();
         if (fresh.inGuild()) observeIncomingMessage(fresh);
     }
     catch (error) {
