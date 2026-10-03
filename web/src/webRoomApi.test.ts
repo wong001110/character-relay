@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { snapshotForRoomTransition, webRoomApi, unmatchedOutbox, withAcceptedOutbox, type WebSnapshot } from "./webRoomApi";
+import { snapshotForRoomTransition, webRoomApi, webRoomCanSubmit, unmatchedOutbox, withAcceptedOutbox, type WebSnapshot } from "./webRoomApi";
 describe("web room client contracts", () => {
  afterEach(() => vi.unstubAllGlobals());
  it("posts a stable idempotency key, owned profile and exact escaped room using the session", async () => {
@@ -41,6 +41,13 @@ describe("web room client contracts", () => {
  });
  it("uses a same-origin stream URL without a token in the URL", () => {
   expect(webRoomApi.eventsUrl("r/1")).toBe("/api/web-chat/rooms/r%2F1/events");
+ });
+ it("keeps REST send available during the normal SSE reconnect window", () => {
+  expect(webRoomCanSubmit("connected")).toBe(true);
+  expect(webRoomCanSubmit("reconnecting")).toBe(true);
+  expect(webRoomCanSubmit("connecting")).toBe(false);
+  expect(webRoomCanSubmit("disconnected")).toBe(false);
+  expect(webRoomCanSubmit("unavailable")).toBe(false);
  });
  it("version-binds profile updates and escapes revocation identity", async () => {
   const fetcher = vi.fn().mockResolvedValue(new Response(null,{status:204})); vi.stubGlobal("fetch",fetcher);

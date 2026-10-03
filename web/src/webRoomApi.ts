@@ -21,6 +21,11 @@ export function snapshotForRoomTransition(current: WebSnapshot, roomId: string):
   if (current.room_id === roomId) return current;
   return {room_id: "", messages: [], outbox: [], history_limit: current.history_limit || 64};
 }
+
+/** SSE reconnect is a read-side transport state; REST send remains authoritative. */
+export function webRoomCanSubmit(connection: string): boolean {
+  return connection === "connected" || connection === "reconnecting";
+}
 const path = (id: string) => `/api/web-chat/rooms/${encodeURIComponent(id)}`;
 
 async function uploadImage(id: string, file: File): Promise<WebUpload> {
