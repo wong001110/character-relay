@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.persistence import Database
+from echo_masque.persistence.room_models import RoomSourceRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.room_context import RoomContextService, bind_requester
 from echo_masque.room_routing import RoomScope, SpeakerChoice
@@ -196,11 +199,9 @@ def test_historical_tombstone_with_presentation_is_sanitized_on_read(
 ) -> None:
     rooms.observe(SCOPE, [message()])
     with rooms.database.session() as session:
-        record = session.get(RoomSourceRecord, rooms.get(SCOPE, "m1").message.draft_fingerprint())
-        if record is None:
-            record = session.scalar(
-                select(RoomSourceRecord).where(RoomSourceRecord.message_id == "m1")
-            )
+        record = session.scalar(
+            select(RoomSourceRecord).where(RoomSourceRecord.message_id == "m1")
+        )
         assert record is not None
         raw = json.loads(record.content_json)
         raw.update(
