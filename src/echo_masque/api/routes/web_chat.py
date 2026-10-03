@@ -8,11 +8,14 @@ import json
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
+from io import BytesIO
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 from echo_masque.api.dependencies import AuthContextDependency, CurrentUserDependency
 from echo_masque.api.routes.connectors import _authorize_connector
@@ -22,6 +25,7 @@ from echo_masque.web_rooms import (
     ProfileInput,
     ProfileUpdate,
     ProfileView,
+    WebAttachmentView,
     WebDeliveryView,
     WebExpressionView,
     WebReactionInput,
@@ -45,6 +49,55 @@ connector_router = APIRouter(prefix="/api/connectors/discord/web-chat", tags=["W
 
 def _repo(request: Request) -> WebRoomRepository:
     return cast(WebRoomRepository, request.app.state.web_room_repository)
+
+
+_MAX_WEB_IMAGE_BYTES = 8 * 1024 * 1024
+_WEB_IMAGE_TYPES = {
+    "PNG": ("image/png", ".png"),
+    "JPEG": ("image/jpeg", ".jpg"),
+    "WEBP": ("image/webp", ".webp"),
+    "GIF": ("image/gif", ".gif"),
+}
+
+
+async def _read_bounded_image(request: Request) -> bytes:
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > _MAX_WEB_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="image_too_large")
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WEB_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="image_too_large")
+        chunks.append(chunk)
+    content = b"".join(chunks)
+    if not content:
+        raise HTTPException(status_code=422, detail="empty_image")
+    return content
+
+
+def _validated_web_image(content: bytes, raw_filename: str) -> tuple[str, str]:
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image_format = (image.format or "").upper()
+            image_type = _WEB_IMAGE_TYPES.get(image_format)
+            if image_type is None:
+                raise ValueError("unsupported_image_type")
+            width, height = image.size
+            if width < 1 or height < 1 or width * height > 40_000_000:
+                raise ValueError("image_dimensions_invalid")
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise HTTPException(status_code=422, detail="invalid_image") from exc
+    mime_type, extension = image_type
+    filename = unquote(raw_filename).replace("\\", "/").rsplit("/", 1)[-1]
+    filename = "".join(
+        char for char in filename if char.isprintable() and char not in "\r\n"
+    ).strip()
+    stem = filename.rsplit(".", 1)[0].strip() if "." in filename else filename
+    stem = stem[:180] or "image"
+    return mime_type, f"{stem}{extension}"
 
 
 @router.get("/profiles", response_model=list[ProfileView])
@@ -276,6 +329,24 @@ def remove_reaction(
     _repo(request).set_reaction(user.id, room_id, message_id, payload, enabled=False)
 
 
+@router.post("/rooms/{room_id}/attachments", response_model=WebAttachmentView, status_code=201)
+async def upload_attachment(
+    room_id: str, request: Request, user: CurrentUserDependency
+) -> WebAttachmentView:
+    content = await _read_bounded_image(request)
+    mime_type, filename = _validated_web_image(
+        content, request.headers.get("x-character-relay-filename", "")
+    )
+    return await asyncio.to_thread(
+        _repo(request).create_attachment,
+        user.id,
+        room_id,
+        filename=filename,
+        mime_type=mime_type,
+        content=content,
+    )
+
+
 @router.post("/rooms/{room_id}/messages", response_model=WebDeliveryView, status_code=202)
 def send_message(
     room_id: str, payload: WebSend, request: Request, user: CurrentUserDependency
@@ -430,6 +501,32 @@ def preflight(
     return {
         "allowed": _repo(request).preflight(payload.connection_id, message_id, payload.claim_nonce)
     }
+
+
+@connector_router.get("/outbox/{message_id}/attachments/{attachment_id}")
+def fetch_attachment(
+    message_id: str,
+    attachment_id: str,
+    connection_id: str,
+    claim_nonce: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> Response:
+    _authorize_connector(request, authorization)
+    artifact = _repo(request).attachment_for_claim(
+        connection_id, message_id, claim_nonce, attachment_id
+    )
+    return Response(
+        content=artifact.content,
+        media_type=artifact.mime_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": (
+                "attachment; filename*=UTF-8''" + quote(artifact.filename, safe="")
+            ),
+        },
+    )
 
 
 @connector_router.post("/outbox/{message_id}/ack", response_model=WebDeliveryView)

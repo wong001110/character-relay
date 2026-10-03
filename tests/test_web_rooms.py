@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import select
 from test_character_turn_graph import CONNECTOR_SECRET, seed, settings
 
 from echo_masque.api import create_app
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
 from echo_masque.persistence.room_models import RoomSelectionRecord
 from echo_masque.persistence.server_access_repository import ServerAccessRepository
 from echo_masque.persistence.web_room_models import WebOutboxRecord
@@ -121,6 +124,12 @@ def observe(web, messages, **changes):
     )
     assert result.status_code == 200, result.text
     return result.json()
+
+
+def image_bytes() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG")
+    return output.getvalue()
 
 
 def send(web, key="client-message-1", **changes):
@@ -279,6 +288,64 @@ def test_profile_version_and_presentation_do_not_change_identity(web):
     )
 
 
+def test_web_image_upload_is_private_claim_bound_and_can_send_without_text(web):
+    app, client, connection, _, room, _ = web
+    content = image_bytes()
+    uploaded = client.post(
+        f"/api/web-chat/rooms/{room}/attachments",
+        content=content,
+        headers={
+            "Content-Type": "image/png",
+            "X-Character-Relay-Filename": "cat.png",
+        },
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    attachment = uploaded.json()
+    assert attachment["filename"] == "cat.png"
+    assert attachment["mime_type"] == "image/png"
+    assert attachment["size_bytes"] == len(content)
+
+    result = send(web, key="image-message", text="", attachment_ids=[attachment["id"]])
+    assert result.status_code == 202, result.text
+    assert result.json()["attachments"][0]["id"] == attachment["id"]
+    item = claim(web)
+    assert item["attachments"][0]["filename"] == "cat.png"
+
+    fetched = client.get(
+        f"/api/connectors/discord/web-chat/outbox/{item['id']}/attachments/{attachment['id']}",
+        params={
+            "connection_id": connection["id"],
+            "claim_nonce": item["claim_nonce"],
+        },
+        headers=HEADERS,
+    )
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.content == content
+    assert fetched.headers["content-type"].startswith("image/png")
+    assert fetched.headers["cache-control"] == "private, no-store"
+
+    denied = client.get(
+        f"/api/connectors/discord/web-chat/outbox/{item['id']}/attachments/{attachment['id']}",
+        params={"connection_id": connection["id"], "claim_nonce": "wrong-claim-nonce"},
+        headers=HEADERS,
+    )
+    assert denied.status_code == 409
+
+    assert ack(web, item).status_code == 200
+    with app.state.database.session() as session:
+        assert session.get(GeneratedMediaArtifactRecord, attachment["id"]) is None
+
+
+def test_web_image_upload_rejects_non_image_content(web):
+    _, client, _, _, room, _ = web
+    result = client.post(
+        f"/api/web-chat/rooms/{room}/attachments",
+        content=b"not-an-image",
+        headers={"X-Character-Relay-Filename": "fake.png"},
+    )
+    assert result.status_code == 422
+
+
 def test_idempotent_pending_send_is_not_delivered_and_payload_conflict_is_rejected(web):
     result = send(web)
     assert result.status_code == 202, result.text
@@ -406,6 +473,43 @@ def test_gateway_before_ack_then_duplicate_echo_has_one_canonical_web_identity(w
         selected = session.get(RoomSelectionRecord, result.json()["choices"][0]["selection_id"])
     assert selected.requester_is_bot is True
     assert selected.requester_id == ""
+
+
+def test_delivered_receipt_stays_retired_after_echo_leaves_recent_history(web):
+    _, client, _, _, room, _ = web
+    send(web)
+    item = claim(web)
+    assert ack(web, item).status_code == 200
+    observe(
+        web,
+        [
+            source(
+                "discord-web-1",
+                author_id="web-hook",
+                author_display_name="Little Dragon",
+                author_is_bot=True,
+                webhook_id="web-hook",
+                text="Ann, hello",
+            )
+        ],
+    )
+    assert client.get(f"/api/web-chat/rooms/{room}/messages").json()["outbox"] == []
+
+    base = datetime.now(UTC)
+    observe(
+        web,
+        [
+            source(
+                f"new-{index:03d}",
+                text=f"new {index}",
+                created_at=(base + timedelta(seconds=index + 1)).isoformat(),
+            )
+            for index in range(64)
+        ],
+    )
+    snapshot = client.get(f"/api/web-chat/rooms/{room}/messages").json()
+    assert "discord-web-1" not in {message["id"] for message in snapshot["messages"]}
+    assert snapshot["outbox"] == []
 
 
 def test_web_receipt_does_not_authorize_other_channel_or_forged_external_identity(web):

@@ -7,10 +7,14 @@ import { safeDiagnosticError } from "./safeDiagnosticError.js";
 export interface WebRoom {
   id: string; name: string; guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
 }
+export interface WebClaimAttachment {
+  id: string; filename: string; mime_type: string; size_bytes: number;
+}
 export interface WebClaim {
   id: string; room_id: string; claim_nonce: string; profile_id: string; actor_id: string;
   display_name: string; avatar_url: string; text: string; reply_to_message_id: string;
   sticker_resource_key?: string; sticker_name?: string; sticker_asset_url?: string; sticker_format_type?: string;
+  attachments?: WebClaimAttachment[];
   guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
   discord_message_id: string; created_at: string;
 }
@@ -18,23 +22,33 @@ export interface WebAck {
   status: "delivered" | "failed" | "uncertain" | "cancelled";
   message_id?: string; webhook_id?: string; created_at?: string; reason?: string;
 }
+export interface WebReplyContext { display_name: string; summary: string; }
 export interface WebBridgeTransport {
   webRooms(): Promise<WebRoom[]>;
   registerWebRoomWebhook(roomId: string, webhookId: string): Promise<void>;
   claimWebMessage(roomId: string, nonce: string): Promise<WebClaim | null>;
   preflightWebMessage(claim: WebClaim): Promise<{allowed: boolean}>;
   acknowledgeWebMessage(claim: WebClaim, result: WebAck): Promise<unknown>;
+  fetchWebAttachment(claim: WebClaim, attachmentId: string): Promise<Buffer>;
   webDispatch(): Promise<WebClaim[]>;
   finishWebDispatch(claim: WebClaim, outcome?: "processed" | "failed"): Promise<void>;
   observeRoom(input: RoomEvidence): Promise<unknown>;
 }
 
-export function webMessageText(claim: WebClaim): string {
-  const reply = claim.reply_to_message_id
-    ? `↪ https://discord.com/channels/${encodeURIComponent(claim.guild_id)}/${encodeURIComponent(claim.thread_id || claim.channel_id)}/${encodeURIComponent(claim.reply_to_message_id)}\n`
+function oneLine(value: string, limit: number): string {
+  return value.trim().replace(/\s+/g, " ").slice(0, limit);
+}
+
+export function webMessageText(claim: WebClaim, replyContext?: WebReplyContext | null): string {
+  if (claim.reply_to_message_id && !replyContext) throw new Error("web_reply_context_required");
+  const reply = replyContext
+    ? `↪ Replying to ${oneLine(replyContext.display_name, 80) || "message"}: ${oneLine(replyContext.summary, 90) || "[No text content]"}\n`
     : "";
   const content = `${reply}${claim.text}`;
-  if ((!claim.text.trim() && !claim.sticker_resource_key) || content.length > 2000) throw new Error("web_message_too_long_or_empty");
+  if (
+    (!claim.text.trim() && !claim.sticker_resource_key && !(claim.attachments?.length))
+    || content.length > 2000
+  ) throw new Error("web_message_too_long_or_empty");
   return content;
 }
 
@@ -49,14 +63,24 @@ export function webSendFailure(error: unknown): WebAck {
 /** Testable send transaction: ACK retry is allowed; sending twice is never an ACK repair. */
 export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTransport, effects: {
   canSend: () => Promise<boolean>;
+  resolveReply?: (claim: WebClaim) => Promise<WebReplyContext | null>;
   send: (content: string, claim: WebClaim) => Promise<{id: string; webhook_id: string; created_at: string}>;
 }): Promise<void> {
   if (!(await effects.canSend()) || !(await transport.preflightWebMessage(claim)).allowed) {
     await transport.acknowledgeWebMessage(claim, {status: "cancelled", reason: "send_preflight_denied"});
     return;
   }
+  let replyContext: WebReplyContext | null = null;
+  if (claim.reply_to_message_id) {
+    try { replyContext = await effects.resolveReply?.(claim) ?? null; }
+    catch { replyContext = null; }
+    if (!replyContext) {
+      await transport.acknowledgeWebMessage(claim, {status: "cancelled", reason: "reply_source_unavailable"});
+      return;
+    }
+  }
   let content: string;
-  try { content = webMessageText(claim); }
+  try { content = webMessageText(claim, replyContext); }
   catch {
     await transport.acknowledgeWebMessage(claim, {status: "failed", reason: "message_invalid"});
     return;
@@ -76,6 +100,23 @@ export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTra
       await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
+}
+
+export async function webMessageFiles(
+  claim: WebClaim,
+  transport: WebBridgeTransport
+): Promise<Array<{attachment: Buffer; name: string}>> {
+  const files: Array<{attachment: Buffer; name: string}> = [];
+  for (const attachment of claim.attachments ?? []) {
+    const bytes = await transport.fetchWebAttachment(claim, attachment.id);
+    if (bytes.length !== attachment.size_bytes || bytes.length > 8 * 1024 * 1024) {
+      throw Object.assign(new Error("web_attachment_size_mismatch"), {status: 422});
+    }
+    files.push({attachment: bytes, name: attachment.filename});
+  }
+  const sticker = await stickerAttachment(claim);
+  if (sticker) files.unshift(sticker);
+  return files;
 }
 
 async function stickerAttachment(claim: WebClaim): Promise<{attachment: Buffer; name: string} | null> {
@@ -188,19 +229,28 @@ export class WebRoomBridge {
         canSend: async () => {
           const channel = await this.channel(room);
           const access = await checkRoomAccess({channel, guild: channel.guild});
-          if (!access.writable) return false;
-          if (claim.reply_to_message_id) {
-            const parent = await channel.messages.fetch({message: claim.reply_to_message_id, force: true, cache: false}).catch(() => null);
-            if (!parent || parent.channelId !== (room.thread_id || room.channel_id)) return false;
-          }
-          return true;
+          return access.writable;
+        },
+        resolveReply: async currentClaim => {
+          if (!currentClaim.reply_to_message_id) return null;
+          const channel = await this.channel(room);
+          const parent = await channel.messages.fetch({
+            message: currentClaim.reply_to_message_id, force: true, cache: false
+          }).catch(() => null);
+          if (!parent || parent.channelId !== (room.thread_id || room.channel_id)) return null;
+          const summary = oneLine(parent.content, 90)
+            || (parent.stickers.size ? "[Sticker]" : parent.attachments.size ? "[Attachment]" : "[No text content]");
+          return {
+            display_name: oneLine(parent.member?.displayName ?? parent.author.globalName ?? parent.author.username, 80),
+            summary
+          };
         },
         send: async (content, currentClaim) => {
-          const sticker = await stickerAttachment(currentClaim);
+          const files = await webMessageFiles(currentClaim, this.transport);
           // discord.js Execute Webhook waits for and returns the actual Message receipt.
           const message = await hook.send({
             ...(content ? {content} : {}),
-            ...(sticker ? {files: [sticker]} : {}),
+            ...(files.length ? {files} : {}),
             username: claim.display_name,
             ...(claim.avatar_url ? {avatarURL: claim.avatar_url} : {}),
             ...(room.thread_id ? {threadId: room.thread_id} : {}),

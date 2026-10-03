@@ -9,7 +9,7 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,10 @@ from echo_masque.persistence.deployment_models import (
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
+from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.persistence.models import UserRecord
+from echo_masque.persistence.room_models import RoomSourceRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.web_room_models import (
@@ -29,9 +32,11 @@ from echo_masque.persistence.web_room_models import (
     WebRoomMemberRecord,
     WebRoomRecord,
 )
+from echo_masque.room_sources import scope_key
 from echo_masque.web_rooms import (
     ProfileInput,
     ProfileView,
+    WebAttachmentView,
     WebDeliveryView,
     WebExpressionView,
     WebReactionInput,
@@ -113,6 +118,7 @@ class WebRoomRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
         self.sources = RoomRepository(database)
+        self.media = GeneratedMediaArtifactRepository(database)
         with _GUARD:
             self.lock = _LOCKS.setdefault(database.engine, RLock())
 
@@ -490,6 +496,94 @@ class WebRoomRepository:
             session.commit()
             return _profile(row)
 
+    @staticmethod
+    def _attachment_scope(room_id: str) -> str:
+        return _hash(["web-room-attachment", room_id])
+
+    @staticmethod
+    def _payload_attachment_ids(payload_json: str) -> tuple[str, ...]:
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, json.JSONDecodeError):
+            return ()
+        raw = payload.get("attachments", []) if isinstance(payload, dict) else []
+        return tuple(
+            str(item["id"])
+            for item in raw
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
+        )
+
+    def _purge_expired_web_attachments(self, *, limit: int = 200) -> None:
+        now = datetime.now(UTC)
+        with self.lock, self.database.session() as session:
+            ids = list(
+                session.scalars(
+                    select(GeneratedMediaArtifactRecord.id)
+                    .where(
+                        GeneratedMediaArtifactRecord.provider == "web-room-upload",
+                        GeneratedMediaArtifactRecord.expires_at <= now,
+                    )
+                    .order_by(GeneratedMediaArtifactRecord.expires_at)
+                    .limit(max(1, min(limit, 2000)))
+                )
+            )
+            if ids:
+                session.execute(
+                    delete(GeneratedMediaArtifactRecord).where(
+                        GeneratedMediaArtifactRecord.id.in_(ids)
+                    )
+                )
+                session.commit()
+
+    def _attachment_record(
+        self,
+        session: Session,
+        room_id: str,
+        user_id: str,
+        attachment_id: str,
+    ) -> GeneratedMediaArtifactRecord | None:
+        record = session.get(GeneratedMediaArtifactRecord, attachment_id)
+        if (
+            record is None
+            or record.owner_id != user_id
+            or record.deployment_id != self._attachment_scope(room_id)
+            or record.provider != "web-room-upload"
+            or _aware(record.expires_at) <= datetime.now(UTC)
+        ):
+            return None
+        return record
+
+    def create_attachment(
+        self,
+        user_id: str,
+        room_id: str,
+        *,
+        filename: str,
+        mime_type: str,
+        content: bytes,
+    ) -> WebAttachmentView:
+        self.require(room_id, user_id, post=True, fresh=True)
+        # Abandoned composer uploads are bounded by the same short-lived artifact TTL.
+        # Opportunistic cleanup avoids growing the PostgreSQL blob table indefinitely.
+        self._purge_expired_web_attachments()
+        record = self.media.create(
+            owner_id=user_id,
+            deployment_id=self._attachment_scope(room_id),
+            character_card_id="",
+            media_key=hashlib.sha256(content).hexdigest(),
+            mime_type=mime_type,
+            filename=filename,
+            provider="web-room-upload",
+            model="",
+            content=content,
+        )
+        return WebAttachmentView(
+            id=record.id,
+            filename=record.filename,
+            mime_type=record.mime_type,
+            size_bytes=len(record.content),
+        )
+
     def enqueue(self, user_id: str, room_id: str, payload: WebSend) -> WebDeliveryView:
         self.require(room_id, user_id, post=True, fresh=True)
         request_hash = _hash([room_id, payload.model_dump()])
@@ -517,6 +611,19 @@ class WebRoomRepository:
                 resource_type="sticker",
             ) is None:
                 raise WebRoomError("sticker_unavailable", 422)
+            attachments: list[WebAttachmentView] = []
+            for attachment_id in payload.attachment_ids:
+                artifact = self._attachment_record(session, room_id, user_id, attachment_id)
+                if artifact is None:
+                    raise WebRoomError("attachment_unavailable", 422)
+                attachments.append(
+                    WebAttachmentView(
+                        id=artifact.id,
+                        filename=artifact.filename,
+                        mime_type=artifact.mime_type,
+                        size_bytes=len(artifact.content),
+                    )
+                )
             if payload.reply_to_message_id:
                 target = self.sources.get(room_scope(room), payload.reply_to_message_id)
                 if target is None or target.message.deleted or not target.message.content_available:
@@ -563,6 +670,7 @@ class WebRoomRepository:
                         "text": payload.text,
                         "reply_to_message_id": payload.reply_to_message_id,
                         "sticker_resource_key": payload.sticker_resource_key,
+                        "attachments": [item.model_dump(mode="json") for item in attachments],
                     },
                     ensure_ascii=False,
                 ),
@@ -579,13 +687,28 @@ class WebRoomRepository:
             return delivery_view(row)
 
     def outbox(self, room_id: str, user_id: str) -> list[WebDeliveryView]:
-        self.require(room_id, user_id)
+        room = self.require(room_id, user_id)
+        source_scope_id = scope_key(room_scope(room))
+        observed_echo = exists(
+            select(RoomSourceRecord.id).where(
+                RoomSourceRecord.scope_id == source_scope_id,
+                RoomSourceRecord.message_id == WebOutboxRecord.discord_message_id,
+            )
+        )
         with self.database.session() as session:
             return [
                 delivery_view(row)
                 for row in session.scalars(
                     select(WebOutboxRecord)
-                    .where(WebOutboxRecord.room_id == room_id, WebOutboxRecord.owner_id == user_id)
+                    .where(
+                        WebOutboxRecord.room_id == room_id,
+                        WebOutboxRecord.owner_id == user_id,
+                        or_(
+                            WebOutboxRecord.status != "delivered",
+                            WebOutboxRecord.discord_message_id == "",
+                            ~observed_echo,
+                        ),
+                    )
                     .order_by(WebOutboxRecord.created_at.desc())
                     .limit(32)
                 )
@@ -717,6 +840,16 @@ class WebRoomRepository:
                     session, room, sticker_key, resource_type="sticker"
                 ) is None:
                     return False
+                for attachment in payload.get("attachments", []):
+                    if (
+                        not isinstance(attachment, dict)
+                        or not isinstance(attachment.get("id"), str)
+                        or self._attachment_record(
+                            session, room.id, row.owner_id, str(attachment["id"])
+                        )
+                        is None
+                    ):
+                        return False
                 if target_id:
                     target = self.sources.get(room_scope(room), target_id)
                     if (
@@ -734,6 +867,38 @@ class WebRoomRepository:
                 and self._access(session, room, row.owner_id, post=True)
                 and self.sources.can_read(room_scope(room), max_age_seconds=90)
             )
+
+    def attachment_for_claim(
+        self,
+        connection_id: str,
+        record_id: str,
+        nonce: str,
+        attachment_id: str,
+    ) -> GeneratedMediaArtifactRecord:
+        with self.lock, self.database.session() as session:
+            row = session.get(WebOutboxRecord, record_id)
+            room = session.get(WebRoomRecord, row.room_id) if row else None
+            if (
+                row is None
+                or room is None
+                or room.connection_id != connection_id
+                or row.claim_nonce != nonce
+                or row.status != "claimed"
+            ):
+                raise WebRoomError("attachment_claim_mismatch", 409)
+            payload = json.loads(row.payload_json)
+            permitted = {
+                str(item.get("id"))
+                for item in payload.get("attachments", [])
+                if isinstance(item, dict) and item.get("id")
+            }
+            if attachment_id not in permitted:
+                raise WebRoomError("attachment_unavailable", 404)
+            artifact = self._attachment_record(session, room.id, row.owner_id, attachment_id)
+            if artifact is None:
+                raise WebRoomError("attachment_unavailable", 404)
+            session.expunge(artifact)
+            return artifact
 
     def acknowledge(
         self,
@@ -789,6 +954,19 @@ class WebRoomRepository:
             # Revocation suppresses future reads/sends, not already observed remote receipts.
             row.status, row.discord_message_id = status, message_id
             row.discord_created_at, row.reason = created_at, reason[:80]
+            # Discord owns the attachment after Execute Webhook returns a terminal result.
+            # Keep only immutable outbox metadata; the private upload bytes are no longer needed.
+            attachment_ids = self._payload_attachment_ids(row.payload_json)
+            if attachment_ids:
+                session.execute(
+                    delete(GeneratedMediaArtifactRecord).where(
+                        GeneratedMediaArtifactRecord.id.in_(attachment_ids),
+                        GeneratedMediaArtifactRecord.owner_id == row.owner_id,
+                        GeneratedMediaArtifactRecord.deployment_id
+                        == self._attachment_scope(row.room_id),
+                        GeneratedMediaArtifactRecord.provider == "web-room-upload",
+                    )
+                )
             session.commit()
             return delivery_view(row)
 

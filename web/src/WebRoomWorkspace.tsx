@@ -7,13 +7,15 @@ import { WebRoomMessage } from "./WebRoomMessage";
 import {
   snapshotForRoomTransition,
   unmatchedOutbox,
+  withAcceptedOutbox,
   webRoomApi,
   type WebExpression,
   type WebMember,
   type WebProfile,
   type WebRoom,
   type WebSend,
-  type WebSnapshot
+  type WebSnapshot,
+  type WebUpload
 } from "./webRoomApi";
 import "./web-room.css";
 
@@ -25,6 +27,7 @@ type LocalSubmission = {
   phase: "submitting" | "accepted" | "unknown";
   displayName: string;
   avatarUrl: string;
+  attachments: WebUpload[];
 };
 
 function Avatar({ url, name }: { url: string; name: string }) {
@@ -72,6 +75,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [roomName, setRoomName] = useState("");
   const [expressions, setExpressions] = useState<WebExpression[]>([]);
   const [stickerResourceKey, setStickerResourceKey] = useState("");
+  const [attachments, setAttachments] = useState<WebUpload[]>([]);
   const [localSubmission, setLocalSubmission] = useState<LocalSubmission | null>(null);
   const [unread, setUnread] = useState(0);
 
@@ -80,10 +84,24 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
   const activeRoomId = useRef("");
+  const attachmentsRef = useRef<WebUpload[]>([]);
 
   const room = rooms.find(item => item.id === roomId);
   const profile = profiles.find(item => item.id === profileId);
   const latestMessageId = snapshot.messages.at(-1)?.id ?? "";
+
+  const releaseAttachmentPreviews = (items: WebUpload[]) => {
+    for (const item of items) {
+      if (item.preview_url) URL.revokeObjectURL(item.preview_url);
+    }
+  };
+
+  const clearAttachments = () => {
+    setAttachments(current => {
+      releaseAttachmentPreviews(current);
+      return [];
+    });
+  };
 
   const report = (reason: unknown) =>
     setError(reason instanceof Error ? reason.message : "request_failed");
@@ -105,6 +123,12 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         : nextProfiles[0]?.id ?? ""
     );
   }
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => () => releaseAttachmentPreviews(attachmentsRef.current), []);
 
   useEffect(() => {
     let active = true;
@@ -132,6 +156,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       setMembers([]);
       setExpressions([]);
       setStickerResourceKey("");
+      clearAttachments();
       setUnread(0);
       setLocalSubmission(null);
       nearBottom.current = true;
@@ -271,7 +296,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     if (
       !room ||
       !profile ||
-      (!text.trim() && !stickerResourceKey) ||
+      (!text.trim() && !stickerResourceKey && !attachments.length) ||
       localSubmission
     ) return;
 
@@ -282,11 +307,13 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         profile_id: profile.id,
         text,
         reply_to_message_id: reply,
-        sticker_resource_key: stickerResourceKey
+        sticker_resource_key: stickerResourceKey,
+        attachment_ids: attachments.map(item => item.id)
       },
       phase: "submitting",
       displayName: profile.display_name,
-      avatarUrl: profile.avatar_url
+      avatarUrl: profile.avatar_url,
+      attachments: [...attachments]
     };
     setLocalSubmission(pending);
     await dispatch(pending);
@@ -297,11 +324,13 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     setError("");
     setLocalSubmission({ ...pending, phase: "submitting" });
     try {
-      await webRoomApi.send(pending.room, pending.payload);
-      setLocalSubmission({ ...pending, phase: "accepted" });
+      const accepted = await webRoomApi.send(pending.room, pending.payload);
+      setSnapshot(current => withAcceptedOutbox(current, pending.room, accepted));
+      setLocalSubmission(null);
       setText("");
       setReply("");
       setStickerResourceKey("");
+      clearAttachments();
       nearBottom.current = true;
     } catch (reason) {
       setLocalSubmission({ ...pending, phase: "unknown" });
@@ -309,6 +338,41 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function addImages(files: Iterable<File> | null) {
+    if (!room || !room.can_post || demoMode || busy || localSubmission || !files) return;
+    const selected = Array.from(files);
+    if (!selected.length) return;
+    if (attachments.length + selected.length > 4) {
+      setError(tx("A message can include up to 4 images.", "每条消息最多可附加 4 张图片。"));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    let firstFailure: unknown = null;
+    try {
+      for (const file of selected) {
+        try {
+          const uploaded = await webRoomApi.uploadImage(room.id, file);
+          const preview = URL.createObjectURL(file);
+          setAttachments(current => [...current, { ...uploaded, preview_url: preview }].slice(0, 4));
+        } catch (reason) {
+          firstFailure ??= reason;
+        }
+      }
+      if (firstFailure) report(firstFailure);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments(current => {
+      const removed = current.find(item => item.id === id);
+      if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
+      return current.filter(item => item.id !== id);
+    });
   }
 
   function jumpTo(messageId: string) {
@@ -564,6 +628,9 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   {item.sticker_resource_key && (
                     <small>🏷️ {expressions.find(expression => expression.resource_key === item.sticker_resource_key)?.name ?? tx("Sticker", "贴图")}</small>
                   )}
+                  {item.attachments?.map(attachment => (
+                    <small key={attachment.id}>🖼️ {attachment.filename}</small>
+                  ))}
                   {item.reason && <small>{item.reason}</small>}
                   {item.status === "uncertain" && <p>{tx(
                     "Discord may have received this message. It will not be resent automatically.",
@@ -591,6 +658,9 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   {localSubmission.payload.sticker_resource_key && (
                     <small>🏷️ {expressions.find(expression => expression.resource_key === localSubmission.payload.sticker_resource_key)?.name ?? tx("Sticker", "贴图")}</small>
                   )}
+                  {localSubmission.attachments.map(attachment => (
+                    <small key={attachment.id}>🖼️ {attachment.filename}</small>
+                  ))}
                 </div>
               </article>
             )}
@@ -603,7 +673,18 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             </button>
           )}
 
-          <form className="web-room-composer" onSubmit={submit}>
+          <form
+            className="web-room-composer"
+            onSubmit={submit}
+            onDragOver={event => {
+              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+            }}
+            onDrop={event => {
+              if (!event.dataTransfer.files.length) return;
+              event.preventDefault();
+              void addImages(event.dataTransfer.files);
+            }}
+          >
             {reply && (
               <div className="web-room-reply-preview">
                 <span>
@@ -625,12 +706,50 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                 rows={3}
                 disabled={busy || Boolean(localSubmission) || demoMode || !room?.can_post}
                 onChange={event => setText(event.target.value)}
+                onPaste={event => {
+                  const images = Array.from(event.clipboardData.files).filter(file =>
+                    !file.type || file.type.startsWith("image/")
+                  );
+                  if (!images.length) return;
+                  event.preventDefault();
+                  void addImages(images);
+                }}
                 placeholder={tx(
                   "Write a message. Name a Character explicitly to ask it to reply.",
                   "输入消息。明确叫出角色名称可请求回复。"
                 )}
               />
             </label>
+
+            <div className="web-room-upload-row">
+              <label className="web-room-upload-picker">
+                <span>{tx("＋ Add images", "＋ 添加图片")}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  disabled={busy || Boolean(localSubmission) || demoMode || !room?.can_post || attachments.length >= 4}
+                  onChange={event => {
+                    void addImages(event.currentTarget.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              {attachments.map(attachment => (
+                <span className="web-room-upload-chip" key={attachment.id}>
+                  {attachment.preview_url
+                    ? <img src={attachment.preview_url} alt="" />
+                    : <span aria-hidden="true">🖼️</span>}
+                  <span title={attachment.filename}>{attachment.filename}</span>
+                  <button
+                    type="button"
+                    disabled={busy || Boolean(localSubmission)}
+                    aria-label={tx(`Remove ${attachment.filename}`, `移除 ${attachment.filename}`)}
+                    onClick={() => removeAttachment(attachment.id)}
+                  >×</button>
+                </span>
+              ))}
+            </div>
 
             <WebRoomExpressionPicker
               expressions={expressions}
@@ -644,8 +763,8 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             <footer>
               <small>
                 {text.length}/1800 · {tx(
-                  "Mentions never ping everyone or roles. Sticker/image resources are not appended to LLM prose.",
-                  "提及不会触发全体或身份组通知；贴图／图片资源不会作为裸链接塞进 LLM 文本。"
+                  "Paste, drop, or attach images. Mentions never ping everyone or roles; media is not appended to LLM prose.",
+                  "可粘贴、拖入或附加图片。提及不会触发全体或身份组通知；媒体不会作为裸链接塞进 LLM 文本。"
                 )}
               </small>
               <button
@@ -656,7 +775,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   demoMode ||
                   !room?.can_post ||
                   !profile ||
-                  (!text.trim() && !stickerResourceKey) ||
+                  (!text.trim() && !stickerResourceKey && !attachments.length) ||
                   connection !== "connected"
                 }
               >
