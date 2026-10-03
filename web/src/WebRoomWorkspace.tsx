@@ -7,6 +7,7 @@ import { WebRoomMessage } from "./WebRoomMessage";
 import {
   snapshotForRoomTransition,
   unmatchedOutbox,
+  webRoomCanSubmit,
   withAcceptedOutbox,
   webRoomApi,
   type WebExpression,
@@ -571,10 +572,15 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               )}
             </span>
           </header>
-          <p className="web-room-history-note">{tx(
-            "Latest 64 messages. Reconnect keeps the visible transcript mounted while fresh state arrives.",
-            "显示最近 64 条消息；重连时保留当前内容，收到新状态后原位更新。"
-          )}</p>
+          <p className="web-room-history-note">{connection === "reconnecting"
+            ? tx(
+              "Reconnecting… You can still send messages; live updates may be delayed.",
+              "正在重新连接……仍可发送消息；实时更新可能会暂时延迟。"
+            )
+            : tx(
+              "Latest 64 messages. Reconnect keeps the visible transcript mounted while fresh state arrives.",
+              "显示最近 64 条消息；重连时保留当前内容，收到新状态后原位更新。"
+            )}</p>
 
           <div
             ref={messagesNode}
@@ -776,7 +782,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   !room?.can_post ||
                   !profile ||
                   (!text.trim() && !stickerResourceKey && !attachments.length) ||
-                  connection !== "connected"
+                  !webRoomCanSubmit(connection)
                 }
               >
                 {tx("Send", "发送")}
