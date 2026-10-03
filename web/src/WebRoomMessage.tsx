@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { formatPortalClock } from "./portalTime";
 import type { WebExpression, WebMessage } from "./webRoomApi";
 
 const commonReactions = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
@@ -18,10 +19,7 @@ function sizeLabel(value: number | null): string {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 function messageTime(value: string | null): string {
-  const date = value ? new Date(value) : null;
-  return date && Number.isFinite(date.getTime())
-    ? date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
-    : "";
+  return value ? formatPortalClock(value) : "";
 }
 function emojiImage(id: string, animated: boolean): string {
   return `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}`;

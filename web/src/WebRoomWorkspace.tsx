@@ -4,6 +4,7 @@ import { deploymentApi, type DiscordServerCatalog } from "./deploymentApi";
 import { useI18n } from "./i18n";
 import { WebRoomExpressionPicker } from "./WebRoomExpressionPicker";
 import { WebRoomMessage } from "./WebRoomMessage";
+import { formatPortalClock } from "./portalTime";
 import {
   WEB_ROOM_ATTACHMENT_ACCEPT,
   snapshotForRoomTransition,
@@ -41,10 +42,7 @@ function Avatar({ url, name }: { url: string; name: string }) {
 }
 
 function time(value: string | null) {
-  const date = value ? new Date(value) : null;
-  return date && Number.isFinite(date.getTime())
-    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "";
+  return value ? formatPortalClock(value) : "";
 }
 
 export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
