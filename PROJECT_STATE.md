@@ -6,15 +6,15 @@ Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `f243918043ae711d86ff27f38fce5bbaa556b98a` (through merged PR #217) |
-| Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
-| Current instruction | Execution mode for the explicitly requested Web Room reply-presentation rollback. The user authorized squash-merging both the general-attachment and reply changes to main. No manual production deployment was requested. |
-| Development branch | `fix/web-room-reply-link-20261003`; PR #218 |
-| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; reply-link rollback branch pending verification |
-| Merge / production deploy | PR #214, #215 and #217 are squash-merged. PR #218 is explicitly authorized for squash merge after exact-head checks pass. No manual production deploy or production data change is authorized. |
+| Repository / baseline | `wong001110/character-relay` / main `8e459af1d39060b4e7008d780bcb392e977592eb` (through merged PR #218) |
+| Active direction | [Portal UI follow-up](docs/plans/portal-ui-followup-2026-10-04.md) after live review of Characters, Toolbox/Lab, Deployments and Knowledge Fabric |
+| Current instruction | Execution mode for the accepted Portal UI follow-up. Implement the bounded fixes, verify them, then squash merge this branch to main. No manual production deployment was requested. |
+| Development branch | `fix/portal-ui-followup-20261004`; PR pending |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #219 MYT fix remains separate/open |
+| Merge / production deploy | PR #214, #215, #217 and #218 are squash-merged. This Portal UI branch is explicitly authorized for squash merge after checks. PR #219 remains separate and unmerged. No manual production deploy or production data change is authorized. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#217. Reply-presentation rollback is the remaining follow-up. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218. Portal UI follow-up is active; PR #219 is a separate Web Room timestamp fix. |
 
 ## Baseline correction
 
@@ -163,10 +163,29 @@ The user asked to restore the prior Discord message-link fallback instead of the
 
 Exact-head verification is pending on PR #218 before its authorized squash merge.
 
+## Portal UI follow-up (2026-10-04)
+
+Live review by Dots found four bounded UI/product consistency issues that are accepted for this branch:
+- a Server Knowledge tab can report that Knowledge Fabric is not bootstrapped even though the existing
+  Super Admin Administration → Knowledge Fabric panel already owns the bootstrap action; expose a
+  direct, authorization-aware route to that existing setup rather than adding a second bootstrap UI;
+- Echo Masque Lab labels its close action “Character Library” even though it correctly returns to
+  Toolbox; fix the stale navigation label rather than rerouting the Lab unexpectedly;
+- Deployment workspace children render empty/disconnected placeholders while the first API load is
+  still in progress; show an explicit loading state and avoid zero/empty claims before data resolves;
+- Character Archive remains too dense around ~1170px because the four-column card shelf competes
+  with the right-hand note rail; use a three-column medium-width layout and improve targeted muted
+  text contrast. Server Passport should be collapsible without creating a second workspace surface.
+
+Mobile remains **not validated** by this review and must not be claimed fixed merely because existing
+responsive CSS continues to build. PR #219 (MYT timestamp consistency) is separate and is not folded
+into this branch.
+
 ## Next concrete action
 
-Run exact-head CI, Railway Smoke and Public Demo checks for PR #218. If all pass, squash merge #218
-to main as explicitly authorized. No manual production deploy is requested.
+Implement the accepted Portal UI follow-up on `fix/portal-ui-followup-20261004`, run focused Web tests/typecheck/build,
+then the repository integration CI gates. Update this record with exact evidence, open a focused PR,
+and squash merge it to main after the required checks pass. No manual production deployment.
 
 ## R3 implementation checkpoint (2026-10-01)
 
