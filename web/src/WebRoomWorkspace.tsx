@@ -5,6 +5,7 @@ import { useI18n } from "./i18n";
 import { WebRoomExpressionPicker } from "./WebRoomExpressionPicker";
 import { WebRoomMessage } from "./WebRoomMessage";
 import {
+  WEB_ROOM_ATTACHMENT_ACCEPT,
   snapshotForRoomTransition,
   unmatchedOutbox,
   webRoomCanSubmit,
@@ -341,12 +342,12 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     }
   }
 
-  async function addImages(files: Iterable<File> | null) {
+  async function addAttachments(files: Iterable<File> | null) {
     if (!room || !room.can_post || demoMode || busy || localSubmission || !files) return;
     const selected = Array.from(files);
     if (!selected.length) return;
     if (attachments.length + selected.length > 4) {
-      setError(tx("A message can include up to 4 images.", "每条消息最多可附加 4 张图片。"));
+      setError(tx("A message can include up to 4 attachments.", "每条消息最多可附加 4 个文件。"));
       return;
     }
     setBusy(true);
@@ -355,9 +356,12 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     try {
       for (const file of selected) {
         try {
-          const uploaded = await webRoomApi.uploadImage(room.id, file);
-          const preview = URL.createObjectURL(file);
-          setAttachments(current => [...current, { ...uploaded, preview_url: preview }].slice(0, 4));
+          const uploaded = await webRoomApi.uploadAttachment(room.id, file);
+          const preview = uploaded.mime_type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+          setAttachments(current => [
+            ...current,
+            { ...uploaded, ...(preview ? {preview_url: preview} : {}) }
+          ].slice(0, 4));
         } catch (reason) {
           firstFailure ??= reason;
         }
@@ -366,14 +370,6 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     } finally {
       setBusy(false);
     }
-  }
-
-  function removeAttachment(id: string) {
-    setAttachments(current => {
-      const removed = current.find(item => item.id === id);
-      if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
-      return current.filter(item => item.id !== id);
-    });
   }
 
   function jumpTo(messageId: string) {
@@ -635,7 +631,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                     <small>🏷️ {expressions.find(expression => expression.resource_key === item.sticker_resource_key)?.name ?? tx("Sticker", "贴图")}</small>
                   )}
                   {item.attachments?.map(attachment => (
-                    <small key={attachment.id}>🖼️ {attachment.filename}</small>
+                    <small key={attachment.id}>📎 {attachment.filename}</small>
                   ))}
                   {item.reason && <small>{item.reason}</small>}
                   {item.status === "uncertain" && <p>{tx(
@@ -665,7 +661,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                     <small>🏷️ {expressions.find(expression => expression.resource_key === localSubmission.payload.sticker_resource_key)?.name ?? tx("Sticker", "贴图")}</small>
                   )}
                   {localSubmission.attachments.map(attachment => (
-                    <small key={attachment.id}>🖼️ {attachment.filename}</small>
+                    <small key={attachment.id}>📎 {attachment.filename}</small>
                   ))}
                 </div>
               </article>
@@ -688,7 +684,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             onDrop={event => {
               if (!event.dataTransfer.files.length) return;
               event.preventDefault();
-              void addImages(event.dataTransfer.files);
+              void addAttachments(event.dataTransfer.files);
             }}
           >
             {reply && (
@@ -713,12 +709,10 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                 disabled={busy || Boolean(localSubmission) || demoMode || !room?.can_post}
                 onChange={event => setText(event.target.value)}
                 onPaste={event => {
-                  const images = Array.from(event.clipboardData.files).filter(file =>
-                    !file.type || file.type.startsWith("image/")
-                  );
-                  if (!images.length) return;
+                  const files = Array.from(event.clipboardData.files);
+                  if (!files.length) return;
                   event.preventDefault();
-                  void addImages(images);
+                  void addAttachments(files);
                 }}
                 placeholder={tx(
                   "Write a message. Name a Character explicitly to ask it to reply.",
@@ -729,14 +723,14 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
 
             <div className="web-room-upload-row">
               <label className="web-room-upload-picker">
-                <span>{tx("＋ Add images", "＋ 添加图片")}</span>
+                <span>{tx("＋ Add files", "＋ 添加附件")}</span>
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept={WEB_ROOM_ATTACHMENT_ACCEPT}
                   multiple
                   disabled={busy || Boolean(localSubmission) || demoMode || !room?.can_post || attachments.length >= 4}
                   onChange={event => {
-                    void addImages(event.currentTarget.files);
+                    void addAttachments(event.currentTarget.files);
                     event.currentTarget.value = "";
                   }}
                 />
@@ -745,7 +739,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                 <span className="web-room-upload-chip" key={attachment.id}>
                   {attachment.preview_url
                     ? <img src={attachment.preview_url} alt="" />
-                    : <span aria-hidden="true">🖼️</span>}
+                    : <span aria-hidden="true">📎</span>}
                   <span title={attachment.filename}>{attachment.filename}</span>
                   <button
                     type="button"
@@ -769,8 +763,8 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             <footer>
               <small>
                 {text.length}/1800 · {tx(
-                  "Paste, drop, or attach images. Mentions never ping everyone or roles; media is not appended to LLM prose.",
-                  "可粘贴、拖入或附加图片。提及不会触发全体或身份组通知；媒体不会作为裸链接塞进 LLM 文本。"
+                  "Paste, drop, or attach files. Images preview locally; attachments are not appended to LLM prose.",
+                  "可粘贴、拖入或附加文件。图片会本地预览；附件不会作为裸链接塞进 LLM 文本。"
                 )}
               </small>
               <button

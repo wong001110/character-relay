@@ -346,6 +346,63 @@ def test_web_image_upload_rejects_non_image_content(web):
     assert result.status_code == 422
 
 
+def test_web_attachment_upload_accepts_common_file_and_rejects_executable(web):
+    _, client, connection, _, room, _ = web
+    content = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
+    uploaded = client.post(
+        f"/api/web-chat/rooms/{room}/attachments",
+        content=content,
+        headers={
+            "Content-Type": "application/pdf",
+            "X-Character-Relay-Filename": "notes.pdf",
+        },
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    attachment = uploaded.json()
+    assert attachment["filename"] == "notes.pdf"
+    assert attachment["mime_type"] == "application/pdf"
+
+    result = send(web, key="pdf-message", text="", attachment_ids=[attachment["id"]])
+    assert result.status_code == 202, result.text
+    item = claim(web)
+    fetched = client.get(
+        f"/api/connectors/discord/web-chat/outbox/{item['id']}/attachments/{attachment['id']}",
+        params={
+            "connection_id": connection["id"],
+            "claim_nonce": item["claim_nonce"],
+        },
+        headers=HEADERS,
+    )
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.content == content
+    assert fetched.headers["content-type"].startswith("application/pdf")
+
+    rejected = client.post(
+        f"/api/web-chat/rooms/{room}/attachments",
+        content=b"MZ-not-really-an-executable",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "X-Character-Relay-Filename": "program.exe",
+        },
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"] == "unsupported_attachment_type"
+
+
+def test_web_attachment_upload_rejects_mime_extension_mismatch(web):
+    _, client, _, _, room, _ = web
+    result = client.post(
+        f"/api/web-chat/rooms/{room}/attachments",
+        content=b"%PDF-1.7\n%%EOF\n",
+        headers={
+            "Content-Type": "text/plain",
+            "X-Character-Relay-Filename": "notes.pdf",
+        },
+    )
+    assert result.status_code == 422
+    assert result.json()["detail"] == "attachment_mime_mismatch"
+
+
 def test_idempotent_pending_send_is_not_delivered_and_payload_conflict_is_rejected(web):
     result = send(web)
     assert result.status_code == 202, result.text

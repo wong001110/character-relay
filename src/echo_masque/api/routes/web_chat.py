@@ -51,53 +51,131 @@ def _repo(request: Request) -> WebRoomRepository:
     return cast(WebRoomRepository, request.app.state.web_room_repository)
 
 
-_MAX_WEB_IMAGE_BYTES = 8 * 1024 * 1024
+_MAX_WEB_ATTACHMENT_BYTES = 8 * 1024 * 1024
 _WEB_IMAGE_TYPES = {
     "PNG": ("image/png", ".png"),
     "JPEG": ("image/jpeg", ".jpg"),
     "WEBP": ("image/webp", ".webp"),
     "GIF": ("image/gif", ".gif"),
 }
+_WEB_FILE_TYPES: dict[str, tuple[str, frozenset[str]]] = {
+    ".txt": ("text/plain", frozenset({"text/plain"})),
+    ".md": ("text/markdown", frozenset({"text/markdown", "text/plain"})),
+    ".csv": ("text/csv", frozenset({"text/csv", "text/plain", "application/vnd.ms-excel"})),
+    ".log": ("text/plain", frozenset({"text/plain"})),
+    ".json": ("application/json", frozenset({"application/json", "text/json", "text/plain"})),
+    ".xml": ("application/xml", frozenset({"application/xml", "text/xml", "text/plain"})),
+    ".yaml": (
+        "application/yaml",
+        frozenset({"application/yaml", "application/x-yaml", "text/yaml", "text/plain"}),
+    ),
+    ".yml": (
+        "application/yaml",
+        frozenset({"application/yaml", "application/x-yaml", "text/yaml", "text/plain"}),
+    ),
+    ".pdf": ("application/pdf", frozenset({"application/pdf"})),
+    ".rtf": ("application/rtf", frozenset({"application/rtf", "text/rtf"})),
+    ".doc": ("application/msword", frozenset({"application/msword"})),
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        frozenset({"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
+    ),
+    ".xls": ("application/vnd.ms-excel", frozenset({"application/vnd.ms-excel"})),
+    ".xlsx": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        frozenset({"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),
+    ),
+    ".ppt": ("application/vnd.ms-powerpoint", frozenset({"application/vnd.ms-powerpoint"})),
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        frozenset({"application/vnd.openxmlformats-officedocument.presentationml.presentation"}),
+    ),
+    ".zip": (
+        "application/zip",
+        frozenset({"application/zip", "application/x-zip-compressed"}),
+    ),
+    ".gz": ("application/gzip", frozenset({"application/gzip", "application/x-gzip"})),
+    ".tar": ("application/x-tar", frozenset({"application/x-tar"})),
+    ".7z": ("application/x-7z-compressed", frozenset({"application/x-7z-compressed"})),
+    ".rar": (
+        "application/vnd.rar",
+        frozenset({"application/vnd.rar", "application/x-rar-compressed"}),
+    ),
+    ".mp3": ("audio/mpeg", frozenset({"audio/mpeg", "audio/mp3"})),
+    ".wav": ("audio/wav", frozenset({"audio/wav", "audio/x-wav"})),
+    ".ogg": ("audio/ogg", frozenset({"audio/ogg", "application/ogg"})),
+    ".opus": ("audio/ogg", frozenset({"audio/ogg", "audio/opus", "application/ogg"})),
+    ".m4a": ("audio/mp4", frozenset({"audio/mp4", "audio/x-m4a"})),
+    ".flac": ("audio/flac", frozenset({"audio/flac", "audio/x-flac"})),
+    ".mp4": ("video/mp4", frozenset({"video/mp4"})),
+    ".webm": ("video/webm", frozenset({"video/webm"})),
+    ".mov": ("video/quicktime", frozenset({"video/quicktime"})),
+}
 
 
-async def _read_bounded_image(request: Request) -> bytes:
+def _clean_web_filename(raw_filename: str) -> str:
+    filename = unquote(raw_filename).replace("\\", "/").rsplit("/", 1)[-1]
+    filename = "".join(
+        char for char in filename if char.isprintable() and char not in "\r\n"
+    ).strip()
+    return filename[:220] or "attachment"
+
+
+async def _read_bounded_attachment(request: Request) -> bytes:
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > _MAX_WEB_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="image_too_large")
+    if declared.isdigit() and int(declared) > _MAX_WEB_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=413, detail="attachment_too_large")
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():
         total += len(chunk)
-        if total > _MAX_WEB_IMAGE_BYTES:
-            raise HTTPException(status_code=413, detail="image_too_large")
+        if total > _MAX_WEB_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=413, detail="attachment_too_large")
         chunks.append(chunk)
     content = b"".join(chunks)
     if not content:
-        raise HTTPException(status_code=422, detail="empty_image")
+        raise HTTPException(status_code=422, detail="empty_attachment")
     return content
 
 
-def _validated_web_image(content: bytes, raw_filename: str) -> tuple[str, str]:
+def _validated_web_attachment(
+    content: bytes,
+    raw_filename: str,
+    declared_mime: str,
+) -> tuple[str, str]:
+    filename = _clean_web_filename(raw_filename)
     try:
         with Image.open(BytesIO(content)) as image:
             image_format = (image.format or "").upper()
             image_type = _WEB_IMAGE_TYPES.get(image_format)
             if image_type is None:
-                raise ValueError("unsupported_image_type")
+                raise HTTPException(status_code=422, detail="unsupported_attachment_type")
             width, height = image.size
             if width < 1 or height < 1 or width * height > 40_000_000:
                 raise ValueError("image_dimensions_invalid")
             image.verify()
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+    except UnidentifiedImageError:
+        image_type = None
+    except HTTPException:
+        raise
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
         raise HTTPException(status_code=422, detail="invalid_image") from exc
-    mime_type, extension = image_type
-    filename = unquote(raw_filename).replace("\\", "/").rsplit("/", 1)[-1]
-    filename = "".join(
-        char for char in filename if char.isprintable() and char not in "\r\n"
-    ).strip()
-    stem = filename.rsplit(".", 1)[0].strip() if "." in filename else filename
-    stem = stem[:180] or "image"
-    return mime_type, f"{stem}{extension}"
+
+    if image_type is not None:
+        mime_type, extension = image_type
+        stem = filename.rsplit(".", 1)[0].strip() if "." in filename else filename
+        stem = stem[:180] or "image"
+        return mime_type, f"{stem}{extension}"
+
+    suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    file_type = _WEB_FILE_TYPES.get(suffix)
+    if file_type is None:
+        raise HTTPException(status_code=422, detail="unsupported_attachment_type")
+    mime_type, accepted_mimes = file_type
+    declared = declared_mime.partition(";")[0].strip().lower()
+    if declared and declared != "application/octet-stream" and declared not in accepted_mimes:
+        raise HTTPException(status_code=422, detail="attachment_mime_mismatch")
+    return mime_type, filename
 
 
 @router.get("/profiles", response_model=list[ProfileView])
@@ -333,9 +411,11 @@ def remove_reaction(
 async def upload_attachment(
     room_id: str, request: Request, user: CurrentUserDependency
 ) -> WebAttachmentView:
-    content = await _read_bounded_image(request)
-    mime_type, filename = _validated_web_image(
-        content, request.headers.get("x-character-relay-filename", "")
+    content = await _read_bounded_attachment(request)
+    mime_type, filename = _validated_web_attachment(
+        content,
+        request.headers.get("x-character-relay-filename", ""),
+        request.headers.get("content-type", ""),
     )
     return await asyncio.to_thread(
         _repo(request).create_attachment,
