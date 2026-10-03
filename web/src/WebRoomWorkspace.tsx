@@ -341,7 +341,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   }
 
   async function addImages(files: Iterable<File> | null) {
-    if (!room || !files) return;
+    if (!room || !room.can_post || demoMode || busy || localSubmission || !files) return;
     const selected = Array.from(files);
     if (!selected.length) return;
     if (attachments.length + selected.length > 4) {
