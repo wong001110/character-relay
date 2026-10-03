@@ -6,15 +6,15 @@ Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `f243918043ae711d86ff27f38fce5bbaa556b98a` (through merged PR #217) |
+| Repository / baseline | `wong001110/character-relay` / main `8e459af1d39060b4e7008d780bcb392e977592eb` (through merged PR #218) |
 | Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
-| Current instruction | Execution mode for the explicitly requested Web Room reply-presentation rollback. The user authorized squash-merging both the general-attachment and reply changes to main. No manual production deployment was requested. |
-| Development branch | `fix/web-room-reply-link-20261003`; PR #218 |
-| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; reply-link rollback branch pending verification |
-| Merge / production deploy | PR #214, #215 and #217 are squash-merged. PR #218 is explicitly authorized for squash merge after exact-head checks pass. No manual production deploy or production data change is authorized. |
+| Current instruction | Execution mode for the newly reported Web Room timestamp inconsistency. Unify Room timestamps with Portal MYT and make the timezone explicit. Do not merge or deploy without a new explicit instruction. |
+| Development branch | `fix/web-room-myt-clock-20261003`; PR #219 |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; MYT clock fix pending verification |
+| Merge / production deploy | PR #214, #215, #217 and #218 are squash-merged. PR #219 is not authorized to merge or deploy yet. No production data change is authorized. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#217. Reply-presentation rollback is the remaining follow-up. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218. MYT timestamp consistency is the active follow-up. |
 
 ## Baseline correction
 
@@ -161,12 +161,21 @@ The user asked to restore the prior Discord message-link fallback instead of the
 - Discord receives the prior `↪ https://discord.com/channels/.../<message>` line;
 - no native Discord Reply capability is claimed.
 
-Exact-head verification is pending on PR #218 before its authorized squash merge.
+PR #218 was squash-merged to main as `8e459af1d39060b4e7008d780bcb392e977592eb` after exact-head GitHub CI **37135346387**, Railway Smoke **37135346378**, and Public Demo Status Check **37135346405** passed.
+
+## Web Room MYT timestamp consistency (2026-10-03)
+
+Dots observed the same message as 23:37 in the Dashboard but 08:37 in Web Room because Web Room
+formatted timestamps in the browser's local timezone. PR #219 switches message and delivery-receipt
+clock labels to the shared Portal timestamp parser and explicit `HH:mm MYT` rendering in
+`Asia/Kuala_Lumpur`, independent of browser timezone.
+
+Exact-head verification is pending; PR #219 must remain unmerged until separately authorized.
 
 ## Next concrete action
 
-Run exact-head CI, Railway Smoke and Public Demo checks for PR #218. If all pass, squash merge #218
-to main as explicitly authorized. No manual production deploy is requested.
+Run exact-head Web/Connector/Python/PostgreSQL/Docker CI plus Railway/Public Demo checks for PR #219.
+Keep #219 open after verification until the user explicitly authorizes merge. No manual production deploy is requested.
 
 ## R3 implementation checkpoint (2026-10-01)
 

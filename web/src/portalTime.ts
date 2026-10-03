@@ -16,3 +16,14 @@ export function formatPortalTimestamp(value: string, zh = false): string {
     hour12: true
   })} MYT`;
 }
+
+export function formatPortalClock(value: string): string {
+  const date = parsePortalTimestamp(value);
+  if (Number.isNaN(date.getTime())) return value || "—";
+  return `${date.toLocaleTimeString("en-GB", {
+    timeZone: PORTAL_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  })} MYT`;
+}

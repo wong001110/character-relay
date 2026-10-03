@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPortalTimestamp, parsePortalTimestamp } from "./portalTime";
+import { formatPortalClock, formatPortalTimestamp, parsePortalTimestamp } from "./portalTime";
 
 describe("Portal Malaysia time", () => {
   it("treats timezone-less API timestamps as UTC before displaying MYT", () => {
@@ -19,4 +19,9 @@ describe("Portal Malaysia time", () => {
       "2026-08-09T04:57:20.000Z"
     );
   });
+  it("formats Web Room clock labels in MYT regardless of browser timezone", () => {
+    expect(formatPortalClock("2026-10-03T15:37:00Z")).toBe("23:37 MYT");
+    expect(formatPortalClock("2026-10-03T23:37:00+08:00")).toBe("23:37 MYT");
+  });
+
 });

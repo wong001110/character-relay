@@ -1,6 +1,6 @@
 # Web Room follow-up — 2026-10-03
 
-Working branch: `fix/web-room-followup-20261003`
+Working branch: `fix/web-room-myt-clock-20261003`
 
 Do not merge to `main` until the user explicitly closes the current follow-up pass.
 
@@ -78,6 +78,17 @@ Accepted bounded scope:
 - remove private temporary bytes when delivery becomes terminal; abandoned uploads remain TTL-bounded and opportunistically purged;
 - attachment resources remain structured media evidence and are never appended to LLM prose as temporary URLs/base64.
 
+
+### 6. Web Room MYT timestamp consistency
+
+Dots observed the same message as 23:37 in the Dashboard but 08:37 in Web Room because the Room UI
+used the browser local timezone while the Portal Dashboard already uses Malaysia time.
+
+Required direction:
+- reuse the shared Portal timestamp parser instead of direct browser-local `Date.toLocaleTimeString`;
+- render Web Room message and pending/outbox clock labels in `Asia/Kuala_Lumpur`;
+- show an explicit `MYT` suffix so the timezone is visible even when the browser/system timezone differs;
+- keep timestamp parsing behavior consistent for offset-aware and legacy timezone-less API values.
 
 ## Already fixed and to regression-check
 
