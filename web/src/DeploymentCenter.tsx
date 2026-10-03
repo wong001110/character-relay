@@ -249,6 +249,7 @@ export function DeploymentCenter({
   const [deploymentTools, setDeploymentTools] = useState<Record<string, string[]>>({});
   const [serverTimezone, setServerTimezone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passportOpen, setPassportOpen] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedServerProfileId, setSelectedServerProfileId] = useState(
@@ -750,14 +751,19 @@ export function DeploymentCenter({
           </div>
           <div className="deployment-header-actions">
             {!demoMode && (
-              <button className="paper-button" onClick={openConnectionManager}>
+              <button className="paper-button" onClick={openConnectionManager} disabled={loading}>
                 {zh ? "平台连接" : "Connections"}
               </button>
             )}
           </div>
         </header>
 
-        <details className="server-passport-shell" aria-label={zh ? "Server 护照" : "Server passport"} open>
+        <details
+          className="server-passport-shell"
+          aria-label={zh ? "Server 护照" : "Server passport"}
+          open={passportOpen}
+          onToggle={(event) => setPassportOpen(event.currentTarget.open)}
+        >
           <summary className="server-passport-summary">
             <span>SERVER PASSPORT</span>
             <strong>{selectedWorkspaceProfile?.guild_name ?? (loading ? (zh ? "正在读取 Server…" : "Loading Server…") : (zh ? "Server 工作区" : "Server workspace"))}</strong>

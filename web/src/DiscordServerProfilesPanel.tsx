@@ -309,7 +309,7 @@ export function DiscordServerProfilesPanel({
                   </button>
                 </>
               )}
-              <button className="ink-button" onClick={openNew}>
+              <button className="ink-button" onClick={openNew} disabled={loading}>
                 {zh ? "+ 添加 Server" : "+ Add Server"}
               </button>
             </div>
