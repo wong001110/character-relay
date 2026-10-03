@@ -72,7 +72,7 @@ describes the actual entry points and missing live adapter.
 ## Web Room live follow-up checkpoint (2026-10-03)
 
 Draft PR #214 contains the current bounded follow-up. Application-code head
-`301b2c5e77f2b83bfea40cc8cef31a74c98b8105` is verified but not merged or manually deployed.
+`a7103b01b8868b4861d9d3b467f6c8a5a693766e` is verified but not merged or manually deployed.
 
 - Delivered-card lifecycle: a delivered receipt is retired once its Discord echo is durably present
   in Room source storage; it no longer reappears merely because that echo leaves the 64-message UI
@@ -86,16 +86,21 @@ Draft PR #214 contains the current bounded follow-up. Application-code head
 - Discord reactions: add/remove reaction events force-fetch the exact Discord message before
   publishing presentation state, avoiding stale Message-cache counts.
 - Web → Discord image attachments: PNG/JPEG/WebP/GIF, maximum four images per message and 8 MiB per
-  image. Actual bytes are validated server-side, stored short-term in the existing private generated
-  media store, and downloadable only by the Connector holding the exact outbox claim. Temporary
-  artifact URLs/base64 are not inserted into Agent prose.
+  image. Select, paste and drag/drop all use the same private attachment path; selected images get
+  local object-URL previews only in the browser. Actual bytes are validated server-side, stored
+  short-term in the existing private generated-media store, and downloadable only by the Connector
+  holding the exact outbox claim. Terminal delivery receipts delete the temporary bytes immediately;
+  abandoned uploads remain TTL-bounded and are opportunistically purged. Temporary artifact
+  URLs/base64 are not inserted into Agent prose.
 
-Exact application-code evidence for `301b2c5e77f2b83bfea40cc8cef31a74c98b8105`:
-- GitHub CI run **37101994857**: Web, Discord Connector, Docker production image,
+Exact application-code evidence for `a7103b01b8868b4861d9d3b467f6c8a5a693766e`:
+- GitHub CI run **37104710225**: Web, Discord Connector, Docker production image,
   PostgreSQL foundation, Python 3.12 and Python 3.13 all passed.
 - Python 3.12 and 3.13: **1,409 passed, 7 skipped** each; Ruff and whole-source mypy passed.
-- Railway Smoke **37101994916** passed.
-- Public Demo Status Check **37101994961** passed.
+- Web: **68 tests** plus typecheck, production build and mock build passed.
+- Discord Connector: **154 tests** plus typecheck, build and image build passed.
+- Railway Smoke **37104710292** passed.
+- Public Demo Status Check **37104710220** passed.
 - This is offline/self-reviewed evidence; no live Discord attachment send on this branch and no
   production deployment are claimed.
 
