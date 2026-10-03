@@ -30,6 +30,7 @@ def settings(path: Path) -> Settings:
         "/deployments/server-profile/knowledge",
         "/deployments/server-profile/interactions",
         "/deployments/server-profile/intelligence/conversation",
+        "/rooms",
         "/toolbox",
         "/settings",
         "/dev/ui",
@@ -67,3 +68,13 @@ def test_unknown_deployment_subroute_is_not_converted_into_a_portal_route(tmp_pa
     response = client.get("/deployments/server-profile/not-a-route")
 
     assert response.status_code == 404
+
+
+def test_rooms_deep_link_with_query_serves_portal(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "rooms-route.db")))
+
+    response = client.get("/rooms?room=room-123")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert '<div id="root"></div>' in response.text
