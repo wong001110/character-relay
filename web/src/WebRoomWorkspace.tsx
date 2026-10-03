@@ -372,6 +372,14 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     }
   }
 
+  function removeAttachment(id: string) {
+    setAttachments(current => {
+      const removed = current.find(item => item.id === id);
+      if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
+      return current.filter(item => item.id !== id);
+    });
+  }
+
   function jumpTo(messageId: string) {
     const node = document.getElementById(`web-room-message-${messageId}`);
     if (!node) return;
