@@ -59,6 +59,19 @@ Required direction:
 - preserve the existing distinction that Web-profile reactions are Web identities and do not
   silently impersonate native Discord reactions.
 
+### 5. Web Room image attachments
+
+User requested Discord-like image sending from the Web Room.
+
+Accepted bounded scope:
+- upload local PNG/JPEG/WebP/GIF images from the composer;
+- maximum 4 images per message and 8 MiB per image;
+- validate actual image bytes server-side instead of trusting the browser MIME type;
+- keep uploaded bytes private and short-lived using the existing generated-media artifact store;
+- bind Connector download to the exact room outbox claim; do not expose a public media URL;
+- send the files through the existing Discord Webhook delivery transaction so text/reply/image remain one logical message;
+- do not add general-purpose arbitrary file hosting in this follow-up.
+
 ## Already fixed and to regression-check
 
 - historical malformed Discord tombstones no longer break SSE/reactions;

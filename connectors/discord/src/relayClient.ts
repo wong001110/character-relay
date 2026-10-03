@@ -116,6 +116,41 @@ export class RelayClient {
     async acknowledgeWebMessage(claim: WebClaim, result: WebAck): Promise<unknown> {
         return this.request(`/api/connectors/discord/web-chat/outbox/${encodeURIComponent(claim.id)}/ack`, {method: "POST", body: JSON.stringify({...result, connection_id: this.connectionId, claim_nonce: claim.claim_nonce})}, false, 8000);
     }
+    async fetchWebAttachment(claim: WebClaim, attachmentId: string): Promise<Buffer> {
+        const query = new URLSearchParams({
+            connection_id: this.connectionId,
+            claim_nonce: claim.claim_nonce
+        });
+        const url = `${this.baseUrl}/api/connectors/discord/web-chat/outbox/${encodeURIComponent(claim.id)}/attachments/${encodeURIComponent(attachmentId)}?${query.toString()}`;
+        let response: Response;
+        try {
+            response = await fetch(url, {
+                headers: {Authorization: `Bearer ${this.token}`},
+                signal: AbortSignal.timeout(8000)
+            });
+        }
+        catch (error) {
+            throw Object.assign(
+                new Error(`Unable to fetch Web Room attachment from Character Relay: ${errorDetail(error)}`),
+                {status: 422}
+            );
+        }
+        if (!response.ok) {
+            throw Object.assign(
+                new Error(`Character Relay rejected Web Room attachment with HTTP ${response.status}`),
+                {status: 422}
+            );
+        }
+        const declared = Number(response.headers.get("content-length") ?? 0);
+        if (declared > 8 * 1024 * 1024) {
+            throw Object.assign(new Error("web_attachment_too_large"), {status: 422});
+        }
+        const content = Buffer.from(await response.arrayBuffer());
+        if (content.length > 8 * 1024 * 1024) {
+            throw Object.assign(new Error("web_attachment_too_large"), {status: 422});
+        }
+        return content;
+    }
     async webSource(messageId: string): Promise<WebClaim | null> {
         return this.request(`/api/connectors/discord/web-chat/source/${encodeURIComponent(messageId)}?${new URLSearchParams({connection_id: this.connectionId})}`, {method: "GET"}, false, 8000);
     }

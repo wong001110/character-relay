@@ -117,6 +117,13 @@ class WebReactionInput(BaseModel):
     emoji_name: str = Field(default="", max_length=160)
 
 
+class WebAttachmentView(BaseModel):
+    id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+
+
 class WebSend(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     profile_id: str = Field(min_length=1, max_length=64)
@@ -124,6 +131,7 @@ class WebSend(BaseModel):
     text: str = Field(default="", max_length=1800)
     reply_to_message_id: str = Field(default="", max_length=200)
     sticker_resource_key: str = Field(default="", max_length=240)
+    attachment_ids: tuple[str, ...] = Field(default=(), max_length=4)
 
     @field_validator("text")
     @classmethod
@@ -145,6 +153,14 @@ class WebSend(BaseModel):
     def normalize_reply(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("attachment_ids")
+    @classmethod
+    def normalize_attachment_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned = tuple(item.strip() for item in value)
+        if any(not item or len(item) > 64 for item in cleaned) or len(set(cleaned)) != len(cleaned):
+            raise ValueError("invalid_attachment_ids")
+        return cleaned
+
     @field_validator("profile_id")
     @classmethod
     def normalize_profile(cls, value: str) -> str:
@@ -156,7 +172,7 @@ class WebSend(BaseModel):
         return value.strip()
 
     def model_post_init(self, __context: object) -> None:
-        if not self.text.strip() and not self.sticker_resource_key:
+        if not self.text.strip() and not self.sticker_resource_key and not self.attachment_ids:
             raise ValueError("empty_message")
 
 
@@ -174,6 +190,7 @@ class WebDeliveryView(BaseModel):
     created_at: datetime
     routing_status: str
     sticker_resource_key: str = ""
+    attachments: tuple[WebAttachmentView, ...] = ()
 
 
 class WebRoomDelivery(WebDeliveryView):

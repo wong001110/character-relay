@@ -18,6 +18,16 @@ describe("web room client contracts", () => {
   expect(next.outbox.map(item => item.id)).toEqual(["new","old"]);
   expect(withAcceptedOutbox(snapshot, "other", accepted)).toBe(snapshot);
  });
+ it("uploads image bytes without routing them through the JSON helper", async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({id:"a1",filename:"cat.png",mime_type:"image/png",size_bytes:3}),{status:201}));
+  vi.stubGlobal("fetch", fetcher);
+  const file = new File([new Uint8Array([1,2,3])], "cat.png", {type:"image/png"});
+  const result = await webRoomApi.uploadImage("r/1", file);
+  expect(result.id).toBe("a1");
+  expect(fetcher.mock.calls[0][0]).toBe("/api/web-chat/rooms/r%2F1/attachments");
+  expect(fetcher.mock.calls[0][1].body).toBe(file);
+  expect(fetcher.mock.calls[0][1].headers["Content-Type"]).toBe("image/png");
+ });
  it("keeps unconfirmed sends but removes the receipt when its echo is present", () => {
   const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as unknown as WebSnapshot;
   expect(unmatchedOutbox(snapshot).map(item => item.id)).toEqual(["two"]);

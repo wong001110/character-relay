@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { deliverWebMessage, webMessageText, webSendFailure, type WebBridgeTransport, type WebClaim } from "./webRoomBridge.js";
+import { deliverWebMessage, webMessageFiles, webMessageText, webSendFailure, type WebBridgeTransport, type WebClaim } from "./webRoomBridge.js";
 const claim: WebClaim = {id: "send1", room_id: "room1", claim_nonce: "nonce1234567890123", profile_id: "profile1", actor_id: "web:profile1", display_name: "Ann", avatar_url: "https://cdn.discordapp.com/a.png", text: "Hello @everyone", reply_to_message_id: "", guild_id: "guild1", channel_id: "channel1", thread_id: "", webhook_id: "hook1", discord_message_id: "", created_at: "2026-10-02T00:00:00Z"};
 function fixture() {
- const transport: WebBridgeTransport = {webRooms: vi.fn(), registerWebRoomWebhook: vi.fn(), claimWebMessage: vi.fn(), preflightWebMessage: vi.fn().mockResolvedValue({allowed: true}), acknowledgeWebMessage: vi.fn().mockResolvedValue({}), webDispatch: vi.fn(), finishWebDispatch: vi.fn(), observeRoom: vi.fn()};
+ const transport: WebBridgeTransport = {webRooms: vi.fn(), registerWebRoomWebhook: vi.fn(), claimWebMessage: vi.fn(), preflightWebMessage: vi.fn().mockResolvedValue({allowed: true}), acknowledgeWebMessage: vi.fn().mockResolvedValue({}), fetchWebAttachment: vi.fn().mockResolvedValue(Buffer.from("image")), webDispatch: vi.fn(), finishWebDispatch: vi.fn(), observeRoom: vi.fn()};
  const effects = {canSend: vi.fn().mockResolvedValue(true), send: vi.fn().mockResolvedValue({id: "discord1", webhook_id: "hook1", created_at: "2026-10-02T00:00:00Z"})};
  return {transport, effects};
 }
@@ -55,6 +55,27 @@ describe("web participant one-shot send", () => {
    const replyEffects = {...effects, resolveReply: vi.fn().mockResolvedValue({display_name:"Bob",summary:"Earlier message"})};
    await deliverWebMessage(replyClaim, transport, replyEffects);
    expect(replyEffects.send).toHaveBeenCalledWith("↪ Replying to Bob: Earlier message\nHello @everyone", replyClaim);
+ });
+ it("supports an image-only message and binds its bytes to the claimed attachment metadata", async () => {
+   const {transport} = fixture();
+   const imageClaim = {
+     ...claim,
+     text:"",
+     attachments:[{id:"artifact-1",filename:"cat.png",mime_type:"image/png",size_bytes:5}]
+   };
+   expect(webMessageText(imageClaim)).toBe("");
+   const files = await webMessageFiles(imageClaim, transport);
+   expect(transport.fetchWebAttachment).toHaveBeenCalledWith(imageClaim, "artifact-1");
+   expect(files).toEqual([{attachment:Buffer.from("image"),name:"cat.png"}]);
+ });
+ it("rejects attachment byte lengths that do not match the server claim", async () => {
+   const {transport} = fixture();
+   const imageClaim = {
+     ...claim,
+     text:"",
+     attachments:[{id:"artifact-1",filename:"cat.png",mime_type:"image/png",size_bytes:6}]
+   };
+   await expect(webMessageFiles(imageClaim, transport)).rejects.toThrow("web_attachment_size_mismatch");
  });
  it("supports a validated sticker-only webhook effect without inventing text", async () => {
    const {transport, effects} = fixture();

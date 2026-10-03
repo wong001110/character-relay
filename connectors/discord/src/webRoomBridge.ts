@@ -7,10 +7,14 @@ import { safeDiagnosticError } from "./safeDiagnosticError.js";
 export interface WebRoom {
   id: string; name: string; guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
 }
+export interface WebClaimAttachment {
+  id: string; filename: string; mime_type: string; size_bytes: number;
+}
 export interface WebClaim {
   id: string; room_id: string; claim_nonce: string; profile_id: string; actor_id: string;
   display_name: string; avatar_url: string; text: string; reply_to_message_id: string;
   sticker_resource_key?: string; sticker_name?: string; sticker_asset_url?: string; sticker_format_type?: string;
+  attachments?: WebClaimAttachment[];
   guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
   discord_message_id: string; created_at: string;
 }
@@ -25,6 +29,7 @@ export interface WebBridgeTransport {
   claimWebMessage(roomId: string, nonce: string): Promise<WebClaim | null>;
   preflightWebMessage(claim: WebClaim): Promise<{allowed: boolean}>;
   acknowledgeWebMessage(claim: WebClaim, result: WebAck): Promise<unknown>;
+  fetchWebAttachment(claim: WebClaim, attachmentId: string): Promise<Buffer>;
   webDispatch(): Promise<WebClaim[]>;
   finishWebDispatch(claim: WebClaim, outcome?: "processed" | "failed"): Promise<void>;
   observeRoom(input: RoomEvidence): Promise<unknown>;
@@ -40,7 +45,10 @@ export function webMessageText(claim: WebClaim, replyContext?: WebReplyContext |
     ? `↪ Replying to ${oneLine(replyContext.display_name, 80) || "message"}: ${oneLine(replyContext.summary, 90) || "[No text content]"}\n`
     : "";
   const content = `${reply}${claim.text}`;
-  if ((!claim.text.trim() && !claim.sticker_resource_key) || content.length > 2000) throw new Error("web_message_too_long_or_empty");
+  if (
+    (!claim.text.trim() && !claim.sticker_resource_key && !(claim.attachments?.length))
+    || content.length > 2000
+  ) throw new Error("web_message_too_long_or_empty");
   return content;
 }
 
@@ -92,6 +100,23 @@ export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTra
       await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
+}
+
+export async function webMessageFiles(
+  claim: WebClaim,
+  transport: WebBridgeTransport
+): Promise<Array<{attachment: Buffer; name: string}>> {
+  const files: Array<{attachment: Buffer; name: string}> = [];
+  for (const attachment of claim.attachments ?? []) {
+    const bytes = await transport.fetchWebAttachment(claim, attachment.id);
+    if (bytes.length !== attachment.size_bytes || bytes.length > 8 * 1024 * 1024) {
+      throw Object.assign(new Error("web_attachment_size_mismatch"), {status: 422});
+    }
+    files.push({attachment: bytes, name: attachment.filename});
+  }
+  const sticker = await stickerAttachment(claim);
+  if (sticker) files.unshift(sticker);
+  return files;
 }
 
 async function stickerAttachment(claim: WebClaim): Promise<{attachment: Buffer; name: string} | null> {
@@ -221,11 +246,11 @@ export class WebRoomBridge {
           };
         },
         send: async (content, currentClaim) => {
-          const sticker = await stickerAttachment(currentClaim);
+          const files = await webMessageFiles(currentClaim, this.transport);
           // discord.js Execute Webhook waits for and returns the actual Message receipt.
           const message = await hook.send({
             ...(content ? {content} : {}),
-            ...(sticker ? {files: [sticker]} : {}),
+            ...(files.length ? {files} : {}),
             username: claim.display_name,
             ...(claim.avatar_url ? {avatarURL: claim.avatar_url} : {}),
             ...(room.thread_id ? {threadId: room.thread_id} : {}),

@@ -97,3 +97,10 @@
 .web-room-poll header { display:flex; justify-content:space-between; align-items:start; gap:.75rem; }
 .web-room-poll ol { display:grid; gap:.3rem; margin:0; padding:0; list-style:none; }
 .web-room-poll li { display:flex; justify-content:space-between; gap:.75rem; padding:.35rem .5rem; border:1px solid #887f7433; border-radius:.4rem; }
+
+.web-room-upload-row { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
+.web-room-upload-picker { display:inline-flex !important; width:max-content; font-weight:600 !important; }
+.web-room-upload-picker>span { display:inline-flex; align-items:center; min-height:2rem; padding:.3rem .6rem; border:1px solid #887f7455; border-radius:.4rem; cursor:pointer; }
+.web-room-upload-picker input { position:absolute; width:1px !important; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
+.web-room-upload-chip { display:inline-flex; align-items:center; gap:.35rem; max-width:min(18rem,75vw); padding:.25rem .45rem; border:1px solid #887f7444; border-radius:.45rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.web-room-upload-chip button { border:0; background:transparent; color:inherit; padding:.1rem .25rem; }
