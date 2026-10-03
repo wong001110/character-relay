@@ -93,9 +93,12 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       webRoomApi.rooms(),
       webRoomApi.profiles()
     ]);
-    setRooms(nextRooms);
+    const stableRooms =
+      roomId && room && !nextRooms.some(item => item.id === roomId)
+        ? [...nextRooms, room]
+        : nextRooms;
+    setRooms(stableRooms);
     setProfiles(nextProfiles);
-    setStreamVersion(version => version + 1);
     setProfileId(previous =>
       nextProfiles.some(item => item.id === previous)
         ? previous
@@ -175,6 +178,13 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
       setSnapshot(empty);
       setReply("");
       setUnread(0);
+      setRooms(current => current.filter(item => item.id !== room.id));
+      setParams({});
+      setConnection("unavailable");
+      stream.close();
+    });
+    stream.addEventListener("unavailable", () => {
+      if (closed) return;
       setConnection("unavailable");
       stream.close();
     });

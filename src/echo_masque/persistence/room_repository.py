@@ -14,6 +14,7 @@ from threading import RLock
 from uuid import uuid4
 from weakref import WeakKeyDictionary
 
+from pydantic import ValidationError
 from sqlalchemy import JSON, Engine, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -49,9 +50,36 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def _source_from_json(content_json: str) -> SourceMessage:
+    try:
+        return SourceMessage.model_validate_json(content_json)
+    except ValidationError:
+        raw = json.loads(content_json)
+        if not isinstance(raw, dict) or not raw.get("deleted"):
+            raise
+        # Older tombstones could retain presentation-only metadata because model_copy()
+        # preserved the previous message body. Sanitize that historical shape on read.
+        raw.update(
+            {
+                "text": "",
+                "attachments": [],
+                "custom_emojis": [],
+                "stickers": [],
+                "mentions": [],
+                "embeds": [],
+                "poll": None,
+                "reactions": [],
+                "pinned": False,
+                "has_unseen_media": False,
+                "media_fingerprint": "",
+            }
+        )
+        return SourceMessage.model_validate(raw)
+
+
 def _stored(record: RoomSourceRecord) -> StoredSource:
     return StoredSource(
-        SourceMessage.model_validate_json(record.content_json),
+        _source_from_json(record.content_json),
         record.revision,
         record.room_revision,
     )
@@ -92,12 +120,28 @@ class RoomRepository:
             for item in messages:
                 record = session.get(RoomSourceRecord, evidence_key(scope, item.message_id))
                 if record is not None:
-                    old = SourceMessage.model_validate_json(record.content_json)
+                    old = _source_from_json(record.content_json)
                     if old.deleted:
                         continue
                     if item.deleted:
-                        # Erase content even when delete-before-create lacked author metadata.
-                        item = old.model_copy(update={"deleted": True, "text": ""})
+                        # Erase readable and presentation content. Reactions/media from a deleted
+                        # message are not valid evidence and must not poison later Web snapshots.
+                        item = old.model_copy(
+                            update={
+                                "deleted": True,
+                                "text": "",
+                                "attachments": (),
+                                "custom_emojis": (),
+                                "stickers": (),
+                                "mentions": (),
+                                "embeds": (),
+                                "poll": None,
+                                "reactions": (),
+                                "pinned": False,
+                                "has_unseen_media": False,
+                                "media_fingerprint": "",
+                            }
+                        )
                     else:
                         if (
                             old.author_id != item.author_id
