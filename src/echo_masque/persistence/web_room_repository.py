@@ -500,6 +500,41 @@ class WebRoomRepository:
     def _attachment_scope(room_id: str) -> str:
         return _hash(["web-room-attachment", room_id])
 
+    @staticmethod
+    def _payload_attachment_ids(payload_json: str) -> tuple[str, ...]:
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, json.JSONDecodeError):
+            return ()
+        raw = payload.get("attachments", []) if isinstance(payload, dict) else []
+        return tuple(
+            str(item["id"])
+            for item in raw
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
+        )
+
+    def _purge_expired_web_attachments(self, *, limit: int = 200) -> None:
+        now = datetime.now(UTC)
+        with self.lock, self.database.session() as session:
+            ids = list(
+                session.scalars(
+                    select(GeneratedMediaArtifactRecord.id)
+                    .where(
+                        GeneratedMediaArtifactRecord.provider == "web-room-upload",
+                        GeneratedMediaArtifactRecord.expires_at <= now,
+                    )
+                    .order_by(GeneratedMediaArtifactRecord.expires_at)
+                    .limit(max(1, min(limit, 2000)))
+                )
+            )
+            if ids:
+                session.execute(
+                    delete(GeneratedMediaArtifactRecord).where(
+                        GeneratedMediaArtifactRecord.id.in_(ids)
+                    )
+                )
+                session.commit()
+
     def _attachment_record(
         self,
         session: Session,
@@ -528,6 +563,9 @@ class WebRoomRepository:
         content: bytes,
     ) -> WebAttachmentView:
         self.require(room_id, user_id, post=True, fresh=True)
+        # Abandoned composer uploads are bounded by the same short-lived artifact TTL.
+        # Opportunistic cleanup avoids growing the PostgreSQL blob table indefinitely.
+        self._purge_expired_web_attachments()
         record = self.media.create(
             owner_id=user_id,
             deployment_id=self._attachment_scope(room_id),
@@ -916,6 +954,19 @@ class WebRoomRepository:
             # Revocation suppresses future reads/sends, not already observed remote receipts.
             row.status, row.discord_message_id = status, message_id
             row.discord_created_at, row.reason = created_at, reason[:80]
+            # Discord owns the attachment after Execute Webhook returns a terminal result.
+            # Keep only immutable outbox metadata; the private upload bytes are no longer needed.
+            attachment_ids = self._payload_attachment_ids(row.payload_json)
+            if attachment_ids:
+                session.execute(
+                    delete(GeneratedMediaArtifactRecord).where(
+                        GeneratedMediaArtifactRecord.id.in_(attachment_ids),
+                        GeneratedMediaArtifactRecord.owner_id == row.owner_id,
+                        GeneratedMediaArtifactRecord.deployment_id
+                        == self._attachment_scope(row.room_id),
+                        GeneratedMediaArtifactRecord.provider == "web-room-upload",
+                    )
+                )
             session.commit()
             return delivery_view(row)
 

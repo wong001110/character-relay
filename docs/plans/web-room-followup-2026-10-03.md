@@ -83,3 +83,10 @@ Accepted bounded scope:
 
 Accumulate additional real-use findings here first. Prefer fixing shared state-model causes over
 isolated UI patches. Do not expand into unrelated Discord parity features during this pass.
+
+### 5. Discord-style image attachments
+
+- select, paste or drag up to four PNG/JPEG/WebP/GIF images into the composer;
+- render a local preview before send while keeping upload bytes private;
+- deliver through Discord webhook files rather than message URLs;
+- remove private temporary bytes when delivery reaches a terminal receipt; abandoned uploads remain TTL-bounded and are opportunistically purged.

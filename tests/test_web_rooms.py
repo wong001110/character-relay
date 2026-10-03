@@ -13,6 +13,7 @@ from sqlalchemy import select
 from test_character_turn_graph import CONNECTOR_SECRET, seed, settings
 
 from echo_masque.api import create_app
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
 from echo_masque.persistence.room_models import RoomSelectionRecord
 from echo_masque.persistence.server_access_repository import ServerAccessRepository
 from echo_masque.persistence.web_room_models import WebOutboxRecord
@@ -288,7 +289,7 @@ def test_profile_version_and_presentation_do_not_change_identity(web):
 
 
 def test_web_image_upload_is_private_claim_bound_and_can_send_without_text(web):
-    _, client, connection, _, room, _ = web
+    app, client, connection, _, room, _ = web
     content = image_bytes()
     uploaded = client.post(
         f"/api/web-chat/rooms/{room}/attachments",
@@ -329,6 +330,10 @@ def test_web_image_upload_is_private_claim_bound_and_can_send_without_text(web):
         headers=HEADERS,
     )
     assert denied.status_code == 409
+
+    assert ack(web, item).status_code == 200
+    with app.state.database.session() as session:
+        assert session.get(GeneratedMediaArtifactRecord, attachment["id"]) is None
 
 
 def test_web_image_upload_rejects_non_image_content(web):
