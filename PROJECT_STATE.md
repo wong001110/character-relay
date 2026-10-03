@@ -206,3 +206,29 @@ Source head `3adda1760f2cff6949cf134ce0f9916511ce5706` passed GitHub CI run **37
 The fresh-schema retirement contract verifies that retired selection/cognitive/workflow tables are not recreated, while account-scoped room evidence, explicit character notes and pending effects retain isolation. Web Room remains deliberately bounded to authenticated session + explicit membership, owned display profile, text/reply, bounded SSE history and durable webhook delivery/echo reconciliation. Real Discord sends and Free Token Pool model quality remain deferred to the user's post-merge testing and are not claimed by these offline gates.
 
 No manual Railway deployment, production reset, live credential export or data deletion was performed during development. The production cutover policy may discard old chat-state data later; portable authored Character content is not coupled to those retired tables.
+
+
+## Web Room follow-up checkpoint (2026-10-03)
+
+Live testing after PR #211/#212/#213 exposed four bounded defects on the supported Web Room path.
+Draft PR #214 at head `29c9e4139f1c1642a43502b537dd0de5fdd7ce5a` implements the current repair batch:
+
+- a successful Web POST now surfaces its accepted outbox receipt immediately and clears the local
+  submit lock instead of waiting for SSE convergence; the POST is bounded to 15 seconds and an
+  unknown network effect retains the existing same-client-ID safe retry path;
+- delivered receipts retire once their exact Discord echo exists in durable Room source evidence,
+  so they do not reappear merely because that echo later falls outside the 64-message Web snapshot;
+- Web → Discord reply presentation no longer prepends a bare Discord jump URL; the Connector
+  re-fetches the referenced same-room message and emits a bounded author + summary fallback while
+  keeping `reply_to_message_id` structured for Agent context;
+- Discord reaction events now force-fetch the exact message before publishing Room evidence, rather
+  than trusting a potentially stale cached Message object.
+
+Exact-head GitHub evidence for PR #214:
+- CI run **37101121680**: Python 3.12 and 3.13 each **1,407 passed, 7 skipped**; Ruff and mypy passed;
+  Web **67 tests** + typecheck + production/mock builds passed; Discord Connector **152 tests** +
+  typecheck + build/image passed; PostgreSQL foundation and Docker production-image checks passed.
+- Railway Smoke **37101121676** passed.
+- Public Demo Status Check **37101121674** passed.
+- These are offline/CI results. The reaction fix still requires the user's real Discord → Web
+  observation, and PR #214 remains draft with no merge or manual production deployment.
