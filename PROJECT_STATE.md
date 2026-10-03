@@ -6,15 +6,15 @@ Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `468dd81660913d35b69d35b13024e329a70e4a1a` (through merged PR #213) |
+| Repository / baseline | `wong001110/character-relay` / main `b44ced4b67dc7713dae895a5c75a534213c7f49e` (through merged PR #214) |
 | Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
-| Current instruction | Execution mode for bounded defects found during live Web Room use plus the explicitly requested Web → Discord image-attachment extension. The user will continue reporting real-use findings. |
-| Development branch | `fix/web-room-followup-20261003`; Draft PR #214 |
-| Follow-up code receipts | `29c9e4139f1c1642a43502b537dd0de5fdd7ce5a` (send/delivery/reply/reaction fixes) and `301b2c5e77f2b83bfea40cc8cef31a74c98b8105` (image attachments) |
-| Merge / production deploy | **Not authorized for this follow-up yet.** Keep PR #214 draft/open until the user closes the observation pass. No manual deploy or production data change. |
+| Current instruction | Execution mode for bounded defects found during live Web Room use. The user explicitly authorized this reconnect-send hotfix and its squash merge to main after checks. No manual production deployment was requested. |
+| Development branch | `fix/web-room-reconnect-send-20261003`; PR #215 |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; reconnect-send hotfix source `08c65900453ee649ebc5061e98995bb4a728c9e6` |
+| Merge / production deploy | PR #214 is squash-merged. PR #215 is explicitly authorized for squash merge after exact-head checks pass. No manual production deploy or production data change is authorized. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#213. Live follow-up remains in progress. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#214. Live follow-up remains in progress through PR #215. |
 
 ## Baseline correction
 
@@ -71,8 +71,8 @@ describes the actual entry points and missing live adapter.
 
 ## Web Room live follow-up checkpoint (2026-10-03)
 
-Draft PR #214 contains the current bounded follow-up. Application-code head
-`a7103b01b8868b4861d9d3b467f6c8a5a693766e` is verified but not merged or manually deployed.
+PR #214 was squash-merged to main as `b44ced4b67dc7713dae895a5c75a534213c7f49e`. Its application-code head
+`a7103b01b8868b4861d9d3b467f6c8a5a693766e` was verified before that merge; no manual production deployment was performed.
 
 - Delivered-card lifecycle: a delivered receipt is retired once its Discord echo is durably present
   in Room source storage; it no longer reappears merely because that echo leaves the 64-message UI
@@ -104,12 +104,36 @@ Exact application-code evidence for `a7103b01b8868b4861d9d3b467f6c8a5a693766e`:
 - This is offline/self-reviewed evidence; no live Discord attachment send on this branch and no
   production deployment are claimed.
 
+## Web Room reconnect-send hotfix (2026-10-03)
+
+Dots reported two dead-click Send attempts around 18:30 and 18:52 MYT while the Web Room status
+changed to `reconnecting`. Railway HTTP evidence showed the browser's SSE request cycling at the
+server's intentional ~60-second stream boundary, no failed `POST /messages` during the dead-click
+windows, and later retries reaching the same room with HTTP 202. Source review identified the
+client-side gate: the Send button was disabled for every state except `connected`.
+
+PR #215 keeps the read-side EventSource lifecycle unchanged and changes only send availability:
+- `connected` and `reconnecting` allow the REST send path;
+- `connecting`, `disconnected`, and `unavailable` remain blocked;
+- reconnecting displays that sending remains available while live updates may lag;
+- backend room membership, freshness, idempotency and delivery checks remain authoritative.
+
+Exact application-code evidence for `08c65900453ee649ebc5061e98995bb4a728c9e6`:
+- GitHub CI run **37120464308** passed Web, Discord Connector, Docker production image,
+  PostgreSQL foundation, Python 3.12 and Python 3.13.
+- Web: **69 tests** plus typecheck, production build and mock build passed.
+- Discord Connector: **154 tests** plus typecheck, build and image build passed.
+- Python 3.12 and 3.13: **1,409 passed, 7 skipped** each; Ruff and whole-source mypy passed.
+- Railway Smoke **37120464327** passed.
+- Public Demo Status Check **37120464292** passed.
+- This evidence is self-reviewed CI evidence. No manual production deployment was performed.
+
 ## Next concrete action
 
-Continue user-owned live observation on the currently deployed main behavior and add reproducible
-findings to the follow-up plan. When the user decides the pass is complete, review PR #214 as one
-batch, decide whether a live branch/deployment check is needed, and only then request merge/deploy
-authorization. Free Token Pool Director quality evaluation remains a separate user-owned live check.
+PR #215 is the authorized squash-merge vehicle for this hotfix. After its exact docs-only head
+repeats the required gates and reaches main, continue user-owned live observation of reconnect/send
+behavior. No manual production deploy is requested. Free Token Pool Director quality evaluation
+remains a separate user-owned live check.
 
 ## R3 implementation checkpoint (2026-10-01)
 
