@@ -26,12 +26,14 @@ Current Web Room reply delivery prepends a Discord message URL to message conten
 that as a channel/message jump link rather than a native Reply preview.
 
 Required direction:
-- use a native Discord message reference when the webhook/Discord API path supports it;
-- if native webhook reply is unavailable, use an explicit readable fallback with referenced author
-  and bounded source summary instead of a bare Discord URL;
 - keep `reply_to_message_id` as structured RoomSource evidence for Character Agent group-chat
-  context;
-- never make a presentation fallback URL part of Agent conversational prose.
+  context and continue validating that the referenced message exists in the exact room;
+- Discord Incoming Webhook delivery cannot create a native inline Reply while preserving the
+  per-Web-profile webhook identity, so use the prior Discord message-link fallback in the webhook
+  presentation;
+- do not prepend the newer `Replying to <author>: <summary>` prose fallback;
+- the Discord presentation link must remain transport presentation only and must never replace the
+  structured Agent-facing reply evidence.
 
 ### 3. Accepted send can leave the composer blocked
 
