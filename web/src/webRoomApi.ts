@@ -27,15 +27,10 @@ export function webRoomCanSubmit(connection: string): boolean {
   return connection === "connected" || connection === "reconnecting";
 }
 export const WEB_ROOM_ATTACHMENT_ACCEPT = [
-  "image/*", "audio/*", "video/*", "text/*",
-  "application/pdf", "application/json", "application/xml", "application/yaml",
-  "application/rtf", "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/zip", "application/gzip", "application/x-7z-compressed", "application/vnd.rar"
+  "image/*", "audio/*", "video/*",
+  ".txt", ".md", ".csv", ".log", ".json", ".xml", ".yaml", ".yml",
+  ".pdf", ".rtf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".zip", ".gz", ".tar", ".7z", ".rar"
 ].join(",");
 
 const path = (id: string) => `/api/web-chat/rooms/${encodeURIComponent(id)}`;
