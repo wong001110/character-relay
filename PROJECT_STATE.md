@@ -8,7 +8,7 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 | --- | --- |
 | Repository / baseline | `wong001110/character-relay` / fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` (through squash-merged PR #223) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | Implement the authorized sizing repair and default-small/custom-size controls for cloud browser agents. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No new merge/manual deploy. |
+| Current instruction | Authorized sizing repair/default-small/custom controls are delivered in PR #224 for review. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No new merge/manual deploy. |
 | Development branch | `feat/room-companion-resize-20261004`, from the documentation follow-up on main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
 | Sizing follow-up | IMPLEMENTED / LOCAL VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys passed; remote PR checks are a separate delivery gate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
@@ -203,7 +203,7 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Deliver/review the focused sizing PR and its remote checks; then verify default, custom and
+Review [sizing PR #224](https://github.com/wong001110/character-relay/pull/224) and its remote checks; then verify default, custom and
 reopen behavior in Dots. Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
@@ -574,3 +574,10 @@ provide the relevant regression evidence. No new bounded mutation campaign was r
 runtime sizing, live incoming messages/send, browser launch attribution and actual BFCache remain
 unverified. Physical first-open/reopen size under browser override still needs the explicit click.
 No new merge/manual production deployment or unrelated PR #219 action occurred.
+
+Delivery: [PR #224](https://github.com/wong001110/character-relay/pull/224) is open against main.
+Application commit **`a35961a1559f6b69c3dc716726dd05c34a790050`** contains the locally verified
+implementation; subsequent delivery-receipt edits only change this document. The branch push
+succeeded using per-command HTTP/1.1. Remote check outcomes belong to the PR's current head,
+available from its [checks](https://github.com/wong001110/character-relay/pull/224/checks), and
+are distinct from the local evidence above. A new squash merge/manual deploy is not authorized.
