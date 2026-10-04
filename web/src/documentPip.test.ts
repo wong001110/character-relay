@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   bindRoomPipLifecycle,
+  DEFAULT_ROOM_PIP_SIZE,
   DocumentPipUnavailableError,
+  isRoomPipSize,
+  readRoomPipSize,
   requestRoomPip,
+  resizeRoomPip,
+  ROOM_PIP_SIZE_LIMITS,
   sameOriginStylesheetUrl,
   supportsDocumentPip
 } from "./documentPip";
@@ -34,8 +39,21 @@ function windowFixture(sources: ElementFixture[] = []) {
     },
     location: { href: "https://relay.example/rooms?r=1" },
     closed: false,
+    innerWidth: 380,
+    innerHeight: 480,
+    outerWidth: 388,
+    outerHeight: 518,
+    screen: { availWidth: 1364, availHeight: 1024 },
     addEventListener: events.addEventListener.bind(events),
     removeEventListener: events.removeEventListener.bind(events),
+    resizeTo: vi.fn((width: number, height: number) => {
+      const frameWidth = Math.max(0, fixture.outerWidth - fixture.innerWidth);
+      const frameHeight = Math.max(0, fixture.outerHeight - fixture.innerHeight);
+      fixture.outerWidth = width;
+      fixture.outerHeight = height;
+      fixture.innerWidth = width - frameWidth;
+      fixture.innerHeight = height - frameHeight;
+    }),
     close: vi.fn(() => { fixture.closed = true; events.dispatchEvent(new Event("pagehide")); })
   };
   return { fixture, window: fixture as unknown as Window, events, head, body };
@@ -68,6 +86,56 @@ describe("Document PiP application boundary", () => {
     const pending = requestRoomPip(parent.window);
     expect(requestWindow).toHaveBeenCalledExactlyOnceWith({ width: 380, height: 480 });
     await expect(pending).rejects.toBe(error);
+  });
+
+  it("rejects invalid sizes before invoking the native API", async () => {
+    const parent = windowFixture();
+    const requestWindow = vi.fn();
+    Object.assign(parent.fixture, { documentPictureInPicture: { requestWindow } });
+    await expect(requestRoomPip(parent.window, { width: 0, height: 480 })).rejects.toBeInstanceOf(RangeError);
+    expect(requestWindow).not.toHaveBeenCalled();
+  });
+
+  it("corrects an oversized native open with its measured frame, once", async () => {
+    const parent = windowFixture();
+    const pip = windowFixture();
+    Object.assign(pip.fixture, { innerWidth: 1083, innerHeight: 781, outerWidth: 1091, outerHeight: 819 });
+    const requestWindow = vi.fn().mockResolvedValue(pip.window);
+    Object.assign(parent.fixture, { documentPictureInPicture: { requestWindow } });
+    await expect(requestRoomPip(parent.window)).resolves.toBe(pip.window);
+    expect(requestWindow).toHaveBeenCalledExactlyOnceWith(DEFAULT_ROOM_PIP_SIZE);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(388, 518);
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 380, height: 480 });
+    expect(pip.fixture.close).not.toHaveBeenCalled();
+    // A user's later manual resize is not fought by an automatic resize listener.
+    Object.assign(pip.fixture, { innerWidth: 612, innerHeight: 494, outerWidth: 620, outerHeight: 532 });
+    pip.events.dispatchEvent(new Event("resize"));
+    expect(pip.fixture.resizeTo).toHaveBeenCalledOnce();
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 612, height: 494 });
+  });
+
+  it("requests custom content dimensions immediately and applies them after native open", async () => {
+    const parent = windowFixture();
+    const pip = windowFixture();
+    const requestWindow = vi.fn().mockResolvedValue(pip.window);
+    Object.assign(parent.fixture, { documentPictureInPicture: { requestWindow } });
+    const pending = requestRoomPip(parent.window, { width: 640, height: 560 });
+    expect(requestWindow).toHaveBeenCalledExactlyOnceWith({ width: 640, height: 560 });
+    await expect(pending).resolves.toBe(pip.window);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(648, 598);
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 640, height: 560 });
+  });
+
+  it("keeps a prepared PiP usable when native resize throws or is unavailable", async () => {
+    for (const resize of [undefined, vi.fn(() => { throw new DOMException("Resize blocked", "NotAllowedError"); })]) {
+      const parent = windowFixture();
+      const pip = windowFixture();
+      Object.assign(pip.fixture, { resizeTo: resize });
+      Object.assign(parent.fixture, { documentPictureInPicture: { requestWindow: vi.fn().mockResolvedValue(pip.window) } });
+      await expect(requestRoomPip(parent.window)).resolves.toBe(pip.window);
+      expect(pip.fixture.document.title).toBe("Room Companion — Character Relay");
+      expect(pip.fixture.close).not.toHaveBeenCalled();
+    }
   });
 
   it("copies CSS in source order, preserves integrity/nonce, and excludes event attributes and remote links", async () => {
@@ -110,6 +178,109 @@ describe("Document PiP application boundary", () => {
     Object.assign(parent.fixture, { documentPictureInPicture: { requestWindow: vi.fn().mockResolvedValue(pip.window) } });
     await expect(requestRoomPip(parent.window)).rejects.toBe(error);
     expect(pip.fixture.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Document PiP native sizing", () => {
+  it("accepts only integer content sizes inside the supplied limits", () => {
+    expect(DEFAULT_ROOM_PIP_SIZE).toEqual({ width: 380, height: 480 });
+    expect(ROOM_PIP_SIZE_LIMITS).toEqual({ minWidth: 320, minHeight: 320, maxWidth: 2000, maxHeight: 1600 });
+    for (const size of [DEFAULT_ROOM_PIP_SIZE, { width: 320, height: 320 }, { width: 2000, height: 1600 }]) {
+      expect(isRoomPipSize(size)).toBe(true);
+    }
+    for (const value of [0, -1, 319, 380.5, NaN, Infinity, -Infinity]) {
+      expect(isRoomPipSize({ width: value, height: 480 })).toBe(false);
+      expect(isRoomPipSize({ width: 380, height: value })).toBe(false);
+    }
+    expect(isRoomPipSize({ width: 2001, height: 480 })).toBe(false);
+    expect(isRoomPipSize({ width: 380, height: 1601 })).toBe(false);
+  });
+
+  it("reads actual inner size including a browser clamp below form limits", () => {
+    const pip = windowFixture();
+    Object.assign(pip.fixture, { innerWidth: 280, innerHeight: 190 });
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 280, height: 190 });
+    pip.fixture.closed = true;
+    expect(readRoomPipSize(pip.window)).toBeNull();
+  });
+
+  it("returns no measurement for invalid or inaccessible native geometry", () => {
+    for (const field of ["innerWidth", "innerHeight"]) {
+      for (const value of [undefined, 0, -1, 380.5, NaN, Infinity]) {
+        const pip = windowFixture();
+        Object.assign(pip.fixture, { [field]: value });
+        expect(readRoomPipSize(pip.window)).toBeNull();
+      }
+    }
+    const pip = windowFixture();
+    Object.defineProperty(pip.fixture, "innerWidth", { get() { throw new Error("Geometry blocked"); } });
+    expect(readRoomPipSize(pip.window)).toBeNull();
+  });
+
+  it("resizes custom content while including the measured frame", () => {
+    const pip = windowFixture();
+    expect(resizeRoomPip(pip.window, { width: 620, height: 532 })).toBe(true);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(628, 570);
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 620, height: 532 });
+  });
+
+  it("treats negative frame differences as zero", () => {
+    const pip = windowFixture();
+    Object.assign(pip.fixture, { outerWidth: 375, outerHeight: 460 });
+    expect(resizeRoomPip(pip.window, DEFAULT_ROOM_PIP_SIZE)).toBe(true);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(380, 480);
+  });
+
+  it("bounds outer dimensions by available screen space without a browser-specific ratio", () => {
+    const pip = windowFixture();
+    expect(resizeRoomPip(pip.window, { width: 1200, height: 900 })).toBe(true);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(1208, 938);
+    pip.fixture.resizeTo.mockClear();
+    Object.assign(pip.fixture.screen, { availWidth: 600, availHeight: 400 });
+    expect(resizeRoomPip(pip.window, { width: 2000, height: 1600 })).toBe(true);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(600, 400);
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 592, height: 362 });
+  });
+
+  it("uses valid screen limits independently and tolerates missing screen geometry", () => {
+    for (const screen of [undefined, { availWidth: 0, availHeight: NaN }, { availWidth: Infinity, availHeight: -1 }]) {
+      const pip = windowFixture();
+      Object.assign(pip.fixture, { screen });
+      expect(resizeRoomPip(pip.window, DEFAULT_ROOM_PIP_SIZE)).toBe(true);
+      expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(388, 518);
+    }
+    const pip = windowFixture();
+    Object.assign(pip.fixture.screen, { availWidth: 360, availHeight: 0 });
+    expect(resizeRoomPip(pip.window, DEFAULT_ROOM_PIP_SIZE)).toBe(true);
+    expect(pip.fixture.resizeTo).toHaveBeenCalledExactlyOnceWith(360, 518);
+  });
+
+  it("does not invent actual geometry when a browser clamps the requested resize", () => {
+    const pip = windowFixture();
+    pip.fixture.resizeTo.mockImplementation(() => {
+      Object.assign(pip.fixture, { outerWidth: 350, outerHeight: 318, innerWidth: 342, innerHeight: 280 });
+    });
+    expect(resizeRoomPip(pip.window, DEFAULT_ROOM_PIP_SIZE)).toBe(true);
+    expect(readRoomPipSize(pip.window)).toEqual({ width: 342, height: 280 });
+  });
+
+  it("fails safely for invalid requests, closed windows, unavailable geometry and resize errors", () => {
+    const invalid = windowFixture();
+    expect(resizeRoomPip(invalid.window, { width: NaN, height: 480 })).toBe(false);
+    expect(invalid.fixture.resizeTo).not.toHaveBeenCalled();
+    for (const dimensions of [{ closed: true }, { innerWidth: 0 }, { outerWidth: undefined }, { outerHeight: 0 }, { outerWidth: 388.5 }]) {
+      const pip = windowFixture();
+      Object.assign(pip.fixture, dimensions);
+      expect(resizeRoomPip(pip.window, DEFAULT_ROOM_PIP_SIZE)).toBe(false);
+      expect(pip.fixture.resizeTo).not.toHaveBeenCalled();
+    }
+    const inaccessible = windowFixture();
+    Object.defineProperty(inaccessible.fixture, "closed", { get() { throw new Error("Window blocked"); } });
+    expect(resizeRoomPip(inaccessible.window, DEFAULT_ROOM_PIP_SIZE)).toBe(false);
+    const denied = windowFixture();
+    denied.fixture.resizeTo.mockImplementation(() => { throw new Error("Resize blocked"); });
+    expect(resizeRoomPip(denied.window, DEFAULT_ROOM_PIP_SIZE)).toBe(false);
+    expect(denied.fixture.close).not.toHaveBeenCalled();
   });
 });
 

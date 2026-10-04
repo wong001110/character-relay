@@ -8,8 +8,9 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 | --- | --- |
 | Repository / baseline | `wong001110/character-relay` / fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` (through squash-merged PR #223) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | PR #223 was squash-merged on the user's explicit request. Investigate the Dots initial-window size discrepancy; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. |
-| Development branch | Documentation follow-up `docs/room-companion-dots-feedback-20261004`, from fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
+| Current instruction | Implement the authorized sizing repair and default-small/custom-size controls for cloud browser agents. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No new merge/manual deploy. |
+| Development branch | `feat/room-companion-resize-20261004`, from the documentation follow-up on main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
+| Sizing follow-up | IMPLEMENTED / LOCAL VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys passed; remote PR checks are a separate delivery gate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
 | Merge / production deploy | PR #214, #215, #217, #218, #221 and #223 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
@@ -202,11 +203,12 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Continue user-owned Dots observation of a natural incoming message and an intentional quick-text
-send from Companion, including convergence with the full room and the delivery receipt. Confirm
-Dots browser launch arguments against the reproduced global window-size override below. Open full room retains
-the Companion by design. See the latest Room Companion feedback below. PR #219 remains separate;
-no manual production deployment was performed.
+Deliver/review the focused sizing PR and its remote checks; then verify default, custom and
+reopen behavior in Dots. Continue user-owned observation of a natural incoming message and an
+intentional quick-text send, including full-room convergence and the delivery receipt.
+Actual Dots launch parameters/root cause remain unconfirmed. Open full
+room retains the Companion by design. PR #219 remains separate; no manual production deployment
+was performed.
 
 ## R3 implementation checkpoint (2026-10-01)
 
@@ -494,4 +496,81 @@ Evidence: `.venv/bin/python /tmp/character-relay-pip-xfwm/probe.py`, receipt
 Private browser, Xvfb, Xfwm4 and D-Bus services were stopped; no real desktop/account was used.
 `git diff --check` passed; no application source or behavior change. Next gate is reading only
 the actual Chromium `--window-size` launch argument/configuration, which does not require access
-to `chrome://version`. If present, use parent-only resizing; browser version remains unconfirmed.
+to `chrome://version`. If present, use parent-only resizing and a controlled removal comparison;
+browser version and actual environment attribution remain unconfirmed.
+
+## Sizing repair evidence correction (2026-10-04)
+
+The first real-API implementation journey did **not** pass automatic default sizing: a prepared
+PiP stayed at **1091×819** despite a post-open resize attempt. Pinned Chromium 151
+[resizeTo source](https://github.com/chromium/chromium/blob/151.0.7922.173/third_party/blink/renderer/core/frame/local_dom_window.cc#L2151)
+requires and consumes transient activation in the **PiP receiver window**; opening consumes the
+parent's activation. Delaying or retrying cannot create a valid gesture.
+
+The earlier isolated `child.evaluate(resizeTo(...))` success included Playwright-injected user
+activation. It proves resizing under activation, **not an automatic post-open correction**.
+The original launch-parameter/window-limit reproduction remains valid, while that automatic-resize
+inference is withdrawn. A clean CDP `Runtime.evaluate` with `userGesture:false`, without preceding
+parent/child page.evaluate calls, reproduced `NotAllowedError` and unchanged dimensions; a genuine
+PiP preset click then succeeded. Corrected probe receipt is under
+`/tmp/character-relay-resize-browser`.
+
+The authorized implementation now requests the default small size, makes at most one best-effort
+post-open attempt, displays the actual size, and offers a directly visible **Use W×H** action when
+it differs from the remembered selection. That action and custom/preset controls execute resize
+synchronously within a real PiP click. Under a browser override, first-open/reopen physical size
+cannot be guaranteed without that click. No synthetic gesture or security-policy bypass is used.
+Verification must separately record the browser-controlled initial bounds and the explicit-action
+result; it must not grant activation while measuring the automatic path.
+
+## Room Companion sizing checkpoint (2026-10-04)
+
+Implemented the authorized frontend repair: default request **380×480**, Small and Medium
+**480×640** presets, labelled custom integer inputs (width **320–2000**, height **320–1600**),
+actual content-size display, denied-resize/validation feedback, and direct **Use W×H** restoration.
+The separate sizing form cannot submit a Room message. Explicit and manual dimensions are
+remembered across routes/close/reopen within the authenticated Portal lifetime; refresh or
+auth/access loss resets the preference. Existing Open full room behavior is retained.
+
+Ordinary Xfwm4 opening widened the initial content from 380 to 398 about **403.5ms** after the
+native promise resolved. An early quiet sample incorrectly remembered that as manual input.
+The Host now observes the full **500ms** before establishing its native baseline, requires usable
+native bounds, and uses child timers with scope/window guards and cleanup. Explicit Apply/Use
+ends observation immediately. Native border resizing during that short initialization period
+may not be remembered; this heuristic covers the measured timing, not every possible WM.
+Tiny PiP independently scrolls sizing/composer controls and removes the history padding floor.
+
+Final headed **Chromium 151.0.7922.173 + real Xfwm4**, private **1364×1024** desktop, real isolated
+API/SQLite/native SSE, without sizing viewport emulation:
+
+| Scenario | Observed content / outer size |
+| --- | --- |
+| Global `--window-size` override, before explicit action | `1083×781` / `1091×819` |
+| Ordinary opening, before explicit action | `398×480` / `406×518` |
+| Default after real Use click, both launch modes | **`380×480` / `388×518`** |
+| Custom/manual after close/reopen + Use | **`612×494` / `620×532`** |
+| Minimum custom with panel expanded | `320×320` / `328×358`; composer inside viewport, input focus and Send pointer hit verified |
+| Valid oversized `2000×1600` selection | Browser clamped to `674×474` / `682×512`; actual display and Small recovery verified |
+
+Both **full** journeys passed the original receipt/idempotency/unread/draft/route/fallback/auth and
+persisted-handler checks plus native sizing. Sizing created no message POST, retained one SSE,
+and reset selection/draft after same-document logout/relogin. Clean CDP `userGesture:false`
+measurements confirmed `NotAllowedError` without dimension change; only real child clicks resize.
+The runner waits at least 500ms plus 300ms of stable geometry, avoiding a false early-size pass.
+
+Verification: `cd web && npm test` **175 passed**; production build (including TypeScript) and
+`npm run build:mock -- --outDir /tmp/character-relay-resize-mock-final` passed. Runner Ruff check,
+format check, py_compile/help and `git diff --check` passed. The two browser runs were invoked by
+`.venv/bin/python /tmp/character-relay-resize-browser/run.py`; reproducible application entry is
+`scripts/verify_room_companion.py --headed --verify-sizing` with the optional launch override.
+Immutable local receipts: `final-dual-full-summary.json` and `final-full-{launcher_override,ordinary_launch}.json`
+under `/tmp/character-relay-resize-browser`; initial timeline is `ordinary-opening-timeline.json`.
+Temporary graph/browser/API resources were cleaned. Independent source review passed the helper,
+Host lifecycle, controls and preference guards; root reviewed the integrated diff and receipts.
+
+No backend, dependency, credential, delivery or persistence contract changed. New protected
+authorization/delivery policy was not introduced; existing scope tests and actual auth cleanup
+provide the relevant regression evidence. No new bounded mutation campaign was run. Dots actual
+runtime sizing, live incoming messages/send, browser launch attribution and actual BFCache remain
+unverified. Physical first-open/reopen size under browser override still needs the explicit click.
+No new merge/manual production deployment or unrelated PR #219 action occurred.
