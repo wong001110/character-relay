@@ -6,12 +6,12 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` (through merged PR #222) |
+| Repository / baseline | `wong001110/character-relay` / fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` (through squash-merged PR #223) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | Implement and verify Room Companion on a focused branch/PR. No merge or manual production deploy. Preserve independent PR #219. |
-| Development branch | `feat/web-room-companion-pip-20261004`, from fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` |
+| Current instruction | PR #223 was squash-merged on the user's explicit request. Record Dots live feedback and inspect the two UX observations; preserve the unverified live-message/send gates and independent PR #219. |
+| Development branch | Documentation follow-up `docs/room-companion-dots-feedback-20261004`, from fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
-| Merge / production deploy | PR #214, #215, #217, #218 and #221 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
+| Merge / production deploy | PR #214, #215, #217, #218, #221 and #223 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
 | Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218 and Portal UI follow-up PR #221. PR #219 is a separate Web Room timestamp fix. |
@@ -202,10 +202,11 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-PR #221 was squash-merged to main as `3223130996afacc78590aa43c26141ec7d78c753` after final-head
-GitHub CI **37139621329**, Railway Smoke **37139621316**, and Public Demo Status Check **37139621330**
-all passed. Continue user-owned live UI observation. PR #219 remains separate/open; no manual
-production deployment was performed.
+Continue user-owned Dots observation of a natural incoming message and an intentional quick-text
+send from Companion, including convergence with the full room and the delivery receipt. Investigate
+the reported native window size before choosing a sizing change. Open full room currently retains
+the Companion by design. See the latest Room Companion feedback below. PR #219 remains separate;
+no manual production deployment was performed.
 
 ## R3 implementation checkpoint (2026-10-01)
 
@@ -372,17 +373,39 @@ visibility/input and real Gemini foreground behavior remain unverified. No backe
 credentials/dependency contracts, live sends, production data or deployments were changed.
 
 
-Delivery: branch `feat/web-room-companion-pip-20261004` is pushed; focused
-[PR #223](https://github.com/wong001110/character-relay/pull/223) is open against main.
+Delivery: focused [PR #223](https://github.com/wong001110/character-relay/pull/223) was
+squash-merged to main on the user's explicit request as
+`f1461249cfd44532167a7f9ad985b2e98a8283a0`. Its final head
+`22375262014a884489a2ca80615caac5f43a7f66` passed GitHub CI **37179054225** (Python 3.12/3.13,
+Web, Discord Connector, PostgreSQL foundation and Docker), Railway Smoke **37179054240**, and
+Public Demo contract check **37179054237**; the shared-deployment health job was skipped on the PR.
+GitHub reported `MERGED`; fetched origin/main and the clean local checkout matched the squash SHA.
 The initial Git push transport 503 was corrected with per-command HTTP/1.1; remote branch
 identity was verified. GitHub API access subsequently succeeded and PR creation is confirmed;
 the earlier API network blocker is resolved, with no duplicate credential request.
 The required `api.github.com` domain addition was saved in the environment draft while
-preserving package-manager presets. No merge or manual deployment was performed.
+preserving package-manager presets. No manual deployment was performed.
 
-Next gate: inspect PR #223's checks at its actual final head and review the implementation;
-then user-owned Dots cloud-computer visibility/click/input qualification using a separate
-Gemini tab. The companion/browser implementation is verified; computer-agent usability is
-unverified. Check results should be read from the exact-head GitHub receipts before any merge,
-not inferred from local passes. PostgreSQL/Docker and live Discord/provider qualification
-are not claimed by the local run; the seven Python skips remain environment-gated.
+The seven local Python skips remain environment-gated; CI evidence is distinct from the local
+browser run and does not establish live Discord/provider qualification or actual BFCache navigation.
+
+## Room Companion Dots feedback (2026-10-04)
+
+Evidence is the Dots report relayed by the user, not a fresh run by the coding agent:
+
+- Pop-out, visibility across pages, bidirectional draft synchronization, minimize/expand, and
+  close/reopen worked. The test draft was cleared, and Dots returned to the connected full room.
+- The initial window was approximately **1091×819 on a 1364×1024 desktop**, larger than expected
+  for a small companion. `documentPip.ts` already requests **380×480** from the native API.
+  The discrepancy is unresolved; browser placement/size restoration and desktop window handling
+  need observation before attributing a cause or changing implementation.
+- Open full room focused/navigated the parent while retaining the PiP window. This matches
+  `RoomCompanionHost.openFull` and the accepted plan; closing the presentation is a separate action.
+- There was no natural new message, so live incoming-message synchronization and sending from
+  Companion remain **UNVERIFIED in Dots**. Do not infer these passes from draft synchronization
+  or the earlier isolated browser journey. Gemini-specific foreground behavior and actual BFCache
+  navigation are not established by this report.
+
+This documentation follow-up changes no source, tests, dependencies or live behavior. Verification:
+inspected the native size request, Open full room call site and accepted plan; `git diff --check`
+passed. Next gate is the live-message/send observation and a bounded native-window sizing diagnosis.
