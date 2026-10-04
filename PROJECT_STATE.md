@@ -344,3 +344,23 @@ tab foreground; close produces pagehide and keeps parent alive. Headless browser
 evidence does not establish visible always-on-top behavior or Dots Computer Control usability.
 No Dots runtime is available. Bundled Playwright Chromium is absent; system Chromium is used
 without bypassing browser API/security policies. Next: shared session and minimal Companion.
+
+## Room Companion implementation checkpoint (2026-10-04)
+
+Portal now owns a single account/room-scoped Web Room session across routes. Full Room and
+Companion share snapshot, read/unread state, draft, pending lock and immutable retry payload.
+Document PiP uses a React portal plus same-origin styles; absent/rejected PiP has an explicitly
+in-app fallback. Management/pickers remain local. Scope and stream epochs are separate so
+reconnect permits REST send and does not strand in-flight requests. SSE acknowledgement prevents
+late POST responses from downgrading delivered receipts or resurrecting reconciled echoes.
+Page restoration rechecks auth, is actor-bound, and rejects stale pre-logout responses.
+
+Web typecheck, **157 tests**, production and mock builds passed. Full Python **1,411 passed,
+7 skipped, 11 warnings**; focused Web Room/Portal **54 passed** (overlapping, not additive).
+Ruff passed; mypy passed across **343 sources**. Independent controller/source review and
+**15 targeted manual mutants killed** supplement these checks. One actor-restore test gap
+was strengthened with a shared-access-room counterexample and rerun; no unresolved survivor.
+Normal real local browser PiP/fallback journey passed; final current-build run including
+persisted-page restore and pending-reauth/logout race is still in progress. Dots desktop
+visibility/input and real Gemini foreground behavior remain unverified. No backend routes,
+credentials/dependency contracts, live sends, production data or deployments were changed.

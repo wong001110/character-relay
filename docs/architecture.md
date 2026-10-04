@@ -13,6 +13,20 @@ provider adapters in `providers/`. `connectors/discord/src/` owns Gateway and tr
 verification/operator commands. No new service topology, supervisor platform or coding-agent
 runtime is part of the refactor. Agent Continuity execution state stays outside the checkout.
 
+### Web Room presentation ownership
+
+`WebRoomSessionProvider` wraps Portal route presentations. `webRoomSession.ts` owns the selected
+room/profile, one EventSource, bounded snapshot, shared unread/read observers, composer and local
+submission. Identity/room epochs isolate late REST results; stream replacement is separate so
+same-room reconnect does not abandon an in-flight send. Full `WebRoomWorkspace` retains management
+forms, expressions picker and DOM scroll refs. `RoomCompanionHost` presents `RoomCompanion` through
+a React portal in Document PiP, or a clearly labelled in-app fallback, without another transport.
+`documentPip.ts` copies same-origin CSS only and binds window cleanup. Closing PiP or changing
+Portal route leaves the session running; logout/revocation resets private state. Parent pagehide
+disposes the session; persisted page restoration rechecks authentication before reopening reads.
+The accepted MVP and browser-agent acceptance boundary are in the
+[Room Companion plan](plans/web-room-companion-2026-10-04.md).
+
 ## Actual baseline ownership and intended disposition
 
 | Boundary | Existing paths | Disposition |
