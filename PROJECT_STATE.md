@@ -8,7 +8,7 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 | --- | --- |
 | Repository / baseline | `wong001110/character-relay` / fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` (through squash-merged PR #223) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | PR #223 was squash-merged on the user's explicit request. Record Dots live feedback and inspect the two UX observations; preserve the unverified live-message/send gates and independent PR #219. |
+| Current instruction | PR #223 was squash-merged on the user's explicit request. Investigate the Dots initial-window size discrepancy; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. |
 | Development branch | Documentation follow-up `docs/room-companion-dots-feedback-20261004`, from fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
 | Merge / production deploy | PR #214, #215, #217, #218, #221 and #223 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
@@ -203,8 +203,8 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 ## Next concrete action
 
 Continue user-owned Dots observation of a natural incoming message and an intentional quick-text
-send from Companion, including convergence with the full room and the delivery receipt. Investigate
-the reported native window size before choosing a sizing change. Open full room currently retains
+send from Companion, including convergence with the full room and the delivery receipt. Confirm
+Dots browser launch arguments against the reproduced global window-size override below. Open full room retains
 the Companion by design. See the latest Room Companion feedback below. PR #219 remains separate;
 no manual production deployment was performed.
 
@@ -397,8 +397,8 @@ Evidence is the Dots report relayed by the user, not a fresh run by the coding a
   close/reopen worked. The test draft was cleared, and Dots returned to the connected full room.
 - The initial window was approximately **1091×819 on a 1364×1024 desktop**, larger than expected
   for a small companion. `documentPip.ts` already requests **380×480** from the native API.
-  The discrepancy is unresolved; browser placement/size restoration and desktop window handling
-  need observation before attributing a cause or changing implementation.
+  At feedback intake the discrepancy was unresolved; the subsequent native sizing investigation
+  below reproduces a matching browser-launch cause without changing implementation.
 - Open full room focused/navigated the parent while retaining the PiP window. This matches
   `RoomCompanionHost.openFull` and the accepted plan; closing the presentation is a separate action.
 - There was no natural new message, so live incoming-message synchronization and sending from
@@ -409,3 +409,48 @@ Evidence is the Dots report relayed by the user, not a fresh run by the coding a
 This documentation follow-up changes no source, tests, dependencies or live behavior. Verification:
 inspected the native size request, Open full room call site and accepted plan; `git diff --check`
 passed. Next gate is the live-message/send observation and a bounded native-window sizing diagnosis.
+
+## Room Companion native sizing investigation (2026-10-04)
+
+The reported **1091×819** was reproduced exactly in **headed Chromium 151.0.7922.173** on
+an isolated **Xvfb 1364×1024** display, using a synthetic loopback page, real clicks and native
+Document PiP. No simulated Playwright viewport, application CSS, live account or Discord send
+was used. Native CDP window bounds agreed with `outerWidth/outerHeight`:
+
+| Browser launch / request | PiP inner size | PiP outer size |
+| --- | --- | --- |
+| Ordinary launch; request `380×480` | `380×480` | `388×518` |
+| Launch `--window-size=1364,1024`; same request | `1083×781` | **`1091×819`** |
+| Same global flag; request also sets `preferInitialWindowPlacement: true` | `1083×781` | **`1091×819`** |
+| Same global flag; subsequently call `resizeTo(388,518)` | `380×480` | `388×518` |
+| No global flag; CDP resizes only the parent to `1364×1024` | `380×480` | `388×518` |
+
+Pinned [Chromium's sizing code](https://github.com/chromium/chromium/blob/151.0.7922.173/chrome/browser/picture_in_picture/picture_in_picture_window_manager.cc#L433)
+accepts the requested viewport plus frame margins but caps the outer window to **80% of the
+display**, yielding `round(1364×0.8)=1091`, `round(1024×0.8)=819`. Cached bounds can override
+size hints on same-tab reopen; preferred initial placement bypasses that cache, but not the
+global launcher override reproduced here. A page-zoom multiplier does not explain the unequal
+width/height enlargement. Application CSS only fills the resulting viewport.
+
+The pinned [browser window-placement helper](https://github.com/chromium/chromium/blob/151.0.7922.173/chrome/browser/ui/browser_window_state.cc#L148)
+applies `--window-size` after computing the requested bounds, with no PiP exception. That override
+then meets the native PiP maximum constraint, explaining the exact reproduction. Source and a
+separate headed probe independently agree on this causal path.
+
+The strongest reproduced cause is the browser-wide `--window-size` launch override. Dots actual
+browser version, launch arguments and size measurement method have been requested from the user
+but are not yet supplied, so this is a confirmed reproduction rather than confirmation of its
+actual startup configuration. Headless `--window-size` and simulated viewport runs also distort
+native geometry; the existing functional browser runner did not establish native small-window size.
+
+Preferred environment correction: remove the global `--window-size` override and resize only the
+parent window. A native `resizeTo` correction is technically possible; its arguments are outer
+dimensions, so preserve the measured frame delta to obtain the intended inner viewport. A product
+change must preserve intentional user resizing/placement; no automatic resizing or cache-reset
+change was made during this investigation. Live incoming-message/send acceptance remains pending.
+
+Evidence: `.venv/bin/python /tmp/character-relay-pip-headed/probe.py` and the native geometry
+receipt `/tmp/character-relay-pip-headed/probe-result.json`; pinned-source research is under
+`/tmp/pip-native-research`. Xvfb and synthetic browser/server resources are temporary and cleaned
+up by the probes. Documentation-only verification: `git diff --check`. Next gate: confirm the
+matching browser launch flag in Dots and apply the parent-only window sizing correction there.
