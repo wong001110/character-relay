@@ -2,8 +2,9 @@
 
 Authority: the user authorized a focused branch and PR, phase commits and verification, then
 explicitly authorized the squash merge of PR #223. The subsequent user request authorizes the
-sizing repair and configurable resize controls below. It does not authorize a new merge,
-manual production deployment or production data changes. Preserve the independent PR #219.
+sizing repair and configurable resize controls below, and the user then explicitly authorized
+their squash merge as PR #224. Manual production deployment and production data changes remain
+outside this authorization. Preserve the independent PR #219.
 Baseline is the actual fetched origin/main, not a handoff SHA. Existing Web Room participant and
 follow-up contracts remain authoritative for authentication, room scope, attachments and delivery.
 

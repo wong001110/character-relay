@@ -6,13 +6,13 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / fetched main `f1461249cfd44532167a7f9ad985b2e98a8283a0` (through squash-merged PR #223) |
+| Repository / baseline | `wong001110/character-relay` / fetched main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649` (through squash-merged PR #224) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | Authorized sizing repair/default-small/custom controls are delivered in PR #224 for review. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No new merge/manual deploy. |
-| Development branch | `feat/room-companion-resize-20261004`, from the documentation follow-up on main `f1461249cfd44532167a7f9ad985b2e98a8283a0` |
-| Sizing follow-up | IMPLEMENTED / LOCAL VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys passed; remote PR checks are a separate delivery gate. |
+| Current instruction | User explicitly authorized squash merge of the sizing repair/default-small/custom controls; PR #224 is merged. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No manual deploy. |
+| Development branch | PR #224 feature branch is merged; documentation-only receipt branch `docs/room-companion-resize-merge-20261004` starts from main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
+| Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
-| Merge / production deploy | PR #214, #215, #217, #218, #221 and #223 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
+| Merge / production deploy | PR #214, #215, #217, #218, #221, #223 and #224 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
 | Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218 and Portal UI follow-up PR #221. PR #219 is a separate Web Room timestamp fix. |
@@ -203,8 +203,9 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Review [sizing PR #224](https://github.com/wong001110/character-relay/pull/224) and its remote checks; then verify default, custom and
-reopen behavior in Dots. Continue user-owned observation of a natural incoming message and an
+Verify default, custom and reopen behavior in Dots after the merged
+[sizing PR #224](https://github.com/wong001110/character-relay/pull/224) reaches its runtime.
+Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
 room retains the Companion by design. PR #219 remains separate; no manual production deployment
@@ -573,11 +574,26 @@ authorization/delivery policy was not introduced; existing scope tests and actua
 provide the relevant regression evidence. No new bounded mutation campaign was run. Dots actual
 runtime sizing, live incoming messages/send, browser launch attribution and actual BFCache remain
 unverified. Physical first-open/reopen size under browser override still needs the explicit click.
-No new merge/manual production deployment or unrelated PR #219 action occurred.
+At this implementation checkpoint, no new merge/manual production deployment or unrelated
+PR #219 action had occurred; the subsequently authorized merge is recorded below.
 
-Delivery: [PR #224](https://github.com/wong001110/character-relay/pull/224) is open against main.
+Delivery: the user explicitly authorized squash merge, and
+[PR #224](https://github.com/wong001110/character-relay/pull/224) was merged at **2026-10-04 09:35:07 UTC**
+as **`b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`**.
 Application commit **`a35961a1559f6b69c3dc716726dd05c34a790050`** contains the locally verified
-implementation; subsequent delivery-receipt edits only change this document. The branch push
-succeeded using per-command HTTP/1.1. Remote check outcomes belong to the PR's current head,
-available from its [checks](https://github.com/wong001110/character-relay/pull/224/checks), and
-are distinct from the local evidence above. A new squash merge/manual deploy is not authorized.
+implementation. Exact pre-merge head **`ea224ac07a050e68f8255520785eef630d6d0bba`** included only
+documentation changes after that application commit. Its remote receipts passed:
+
+- [CI 37191858755](https://github.com/wong001110/character-relay/actions/runs/37191858755):
+  Python 3.12/3.13, Web, Discord Connector, PostgreSQL foundation and Docker all successful.
+- [Railway Smoke 37191858733](https://github.com/wong001110/character-relay/actions/runs/37191858733)
+  and [Public Demo contract 37191858763](https://github.com/wong001110/character-relay/actions/runs/37191858763)
+  successful; shared deployment health was skipped by the PR condition.
+
+Root and independent read-only review both confirmed the expected head and clean merge state.
+The squash used `--match-head-commit` without bypassing checks. GitHub reports MERGED;
+fetched remote main and fast-forwarded local main both match the squash SHA, and their source
+tree exactly matches the tested PR head. HTTP/1.1 fetch succeeded. This receipt is a separate
+documentation-only follow-up; no application code changed after verification. No manual production
+deployment or unrelated PR #219 action was performed, and automatic deployment success is not
+claimed. Dots sizing/live-message/send qualification remains the next runtime gate.
