@@ -6,7 +6,7 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `3223130996afacc78590aa43c26141ec7d78c753` (through merged PR #221) |
+| Repository / baseline | `wong001110/character-relay` / fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` (through merged PR #222) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
 | Current instruction | Implement and verify Room Companion on a focused branch/PR. No merge or manual production deploy. Preserve independent PR #219. |
 | Development branch | `feat/web-room-companion-pip-20261004`, from fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` |
@@ -360,7 +360,23 @@ Web typecheck, **157 tests**, production and mock builds passed. Full Python **1
 Ruff passed; mypy passed across **343 sources**. Independent controller/source review and
 **15 targeted manual mutants killed** supplement these checks. One actor-restore test gap
 was strengthened with a shared-access-room counterexample and rerun; no unresolved survivor.
-Normal real local browser PiP/fallback journey passed; final current-build run including
-persisted-page restore and pending-reauth/logout race is still in progress. Dots desktop
+The current application code `7c40a995b41c8c7896317c0981009bfd292cbc6e` passed the real isolated
+API browser journey with Chromium 151 headless, native PiP/CSS/input/SSE, one EventSource
+(max active 1), shared draft, structured reply/media, unread 0/1/2/0, real pending/idempotent
+send and synthetic Connector claim→uncertain receipt. Closing PiP/routes retain session;
+logout closes/clears it. Absent and rejected PiP fallbacks pass. Persisted page event handlers
+recheck real auth, and a held real 200 response released after actual logout cannot revive
+user/session/stream. `.venv/bin/python scripts/verify_room_companion.py --chromium /usr/bin/chromium`
+exited 0; script Ruff/format checks passed. This verifies handlers, not actual BFCache navigation. Dots desktop
 visibility/input and real Gemini foreground behavior remain unverified. No backend routes,
 credentials/dependency contracts, live sends, production data or deployments were changed.
+
+
+Next delivery gate: push the focused branch and open a PR; do not merge or deploy.
+GitHub API access currently fails at the egress proxy (`api.github.com` CONNECT 403), before
+credential validation. Native Git fetch succeeds; no duplicate GitHub secret is requested.
+The required `api.github.com` addition is saved in the environment draft (package-manager
+presets preserved). Apply/review/save and publish that environment change before retrying PR
+creation and exact-head GitHub CI inspection. Local checks do not claim GitHub CI, PostgreSQL,
+Docker image, live Discord/provider or Dots desktop acceptance. The seven full-Python skips
+remain environment-gated; no assertion or test has been disabled.
