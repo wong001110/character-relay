@@ -438,9 +438,9 @@ then meets the native PiP maximum constraint, explaining the exact reproduction.
 separate headed probe independently agree on this causal path.
 
 The strongest reproduced cause is the browser-wide `--window-size` launch override. Dots actual
-browser version, launch arguments and size measurement method have been requested from the user
-but are not yet supplied, so this is a confirmed reproduction rather than confirmation of its
-actual startup configuration. Headless `--window-size` and simulated viewport runs also distort
+browser version and launch arguments are not yet supplied; the subsequent report below confirms
+the native measurement method and matching inner size. This is a confirmed reproduction rather
+than confirmation of its actual startup configuration. Headless `--window-size` and simulated viewport runs also distort
 native geometry; the existing functional browser runner did not establish native small-window size.
 
 Preferred environment correction: remove the global `--window-size` override and resize only the
@@ -454,3 +454,44 @@ receipt `/tmp/character-relay-pip-headed/probe-result.json`; pinned-source resea
 `/tmp/pip-native-research`. Xvfb and synthetic browser/server resources are temporary and cleaned
 up by the probes. Documentation-only verification: `git diff --check`. Next gate: confirm the
 matching browser launch flag in Dots and apply the parent-only window sizing correction there.
+
+## Dots native-window follow-up (2026-10-04)
+
+User-relayed Dots evidence confirms Linux/Xfce with Xfwm4 and Chromium. Browser version is
+unconfirmed because its browser tool denies `chrome://version`; no attempt was made to bypass
+that tool's URL restriction. The original **1091×819** is a native-window-list measurement,
+with document client area **1083×781**, exactly matching the launcher-override probe above.
+Dots manually shrank the outer window to **620×532** (client **612×494**), clicked Close Room
+Companion, and reopened it. The outer window returned to **1091×819** at its original position.
+This report covers one close/reopen cycle and does not establish the actual browser launch args.
+
+Both reported states have the same **8×38** frame delta as the isolated headed Chromium probe.
+The native measurements remove the earlier screenshot/emulated-viewport ambiguity. The application
+still requests `380×480` on reopen; it does not request `1091×819` or set
+`preferInitialWindowPlacement`.
+
+A further isolated **real Xfwm4 + Chromium 151** probe confirms EWMH `_NET_WM_NAME="Xfwm4"` on
+private Xvfb `:130` (1364×1024). Each case uses a fresh browser context without viewport emulation,
+a real Open click, native CDP resize to **620×532** at `(50,60)`, a child Close click, then reopen:
+
+| Launch parameter | Initial outer / inner | Default reopen outer / inner |
+| --- | --- | --- |
+| None | `406×518` / `398×480` | `638×532` / `630×494` |
+| `--start-maximized` only | `406×518` / `398×480` | `638×532` / `630×494` |
+| `--window-size=1364,1024` | **`1091×819` / `1083×781`** | **`1091×819` / `1083×781`** |
+| Both launch parameters | **`1091×819` / `1083×781`** | **`1091×819` / `1083×781`** |
+
+All native resizes independently measured client **612×494**, matching Dots. Ordinary cache
+reuse stayed small, though this Chromium build added 18px width on reopen. Default Xfwm4 and a
+maximized parent do not explain the giant reset in this controlled environment. Preferred initial
+placement still cannot defeat the global window-size override. The probe moved the window before
+closing: default reopen positions remained near the cached location `(32,60)`; an unchanged
+position in Dots is compatible if it only resized. Dots actual movement and launch-position args
+are unconfirmed, so its position report is not independently reproduced as a separate reset.
+
+Evidence: `.venv/bin/python /tmp/character-relay-pip-xfwm/probe.py`, receipt
+`/tmp/character-relay-pip-xfwm/probe-result.json` (client metrics, native bounds and X window tree).
+Private browser, Xvfb, Xfwm4 and D-Bus services were stopped; no real desktop/account was used.
+`git diff --check` passed; no application source or behavior change. Next gate is reading only
+the actual Chromium `--window-size` launch argument/configuration, which does not require access
+to `chrome://version`. If present, use parent-only resizing; browser version remains unconfirmed.
