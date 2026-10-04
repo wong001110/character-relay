@@ -6,31 +6,15 @@ import { WebRoomExpressionPicker } from "./WebRoomExpressionPicker";
 import { WebRoomMessage } from "./WebRoomMessage";
 import {
   WEB_ROOM_ATTACHMENT_ACCEPT,
-  snapshotForRoomTransition,
   unmatchedOutbox,
   webRoomCanSubmit,
-  withAcceptedOutbox,
   webRoomApi,
   type WebExpression,
   type WebMember,
-  type WebProfile,
-  type WebRoom,
-  type WebSend,
-  type WebSnapshot,
-  type WebUpload
 } from "./webRoomApi";
 import "./web-room.css";
-
-const empty: WebSnapshot = { room_id: "", messages: [], outbox: [], history_limit: 64 };
-
-type LocalSubmission = {
-  room: string;
-  payload: WebSend;
-  phase: "submitting" | "accepted" | "unknown";
-  displayName: string;
-  avatarUrl: string;
-  attachments: WebUpload[];
-};
+import { useWebRoomSession } from "./WebRoomSessionProvider";
+import { useRoomCompanion } from "./RoomCompanionHost";
 
 function Avatar({ url, name }: { url: string; name: string }) {
   const [failed, setFailed] = useState(false);
@@ -52,18 +36,22 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const zh = language === "zh-CN";
   const tx = (en: string, cn: string) => zh ? cn : en;
   const [params, setParams] = useSearchParams();
-  const roomId = params.get("room") ?? "";
-
-  const [rooms, setRooms] = useState<WebRoom[]>([]);
-  const [profiles, setProfiles] = useState<WebProfile[]>([]);
-  const [profileId, setProfileId] = useState("");
-  const [snapshot, setSnapshot] = useState<WebSnapshot>(empty);
-  const [connection, setConnection] = useState("disconnected");
-  const [streamVersion, setStreamVersion] = useState(0);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [text, setText] = useState("");
-  const [reply, setReply] = useState("");
+  const {session, state} = useWebRoomSession();
+  const {openCompanion} = useRoomCompanion();
+  const {roomId, rooms, profiles, profileId, snapshot, connection, error, busy, text, reply,
+    attachments, stickerResourceKey, localSubmission, unread} = state;
+  const scope = session.scope();
+  const patch = (next: Partial<typeof state>) => { if (session.current(scope)) session.patch(next); };
+  const setProfileId = (profileId: string) => patch({profileId});
+  const setError = (error: string) => patch({error});
+  const setBusy = (busy: boolean) => patch({busy});
+  const setText = (text: string) => patch({text});
+  const setReply = (reply: string) => patch({reply});
+  const setStickerResourceKey = (stickerResourceKey: string) => patch({stickerResourceKey});
+  const setLocalSubmission = (localSubmission: typeof state.localSubmission) => patch({localSubmission});
+  const report = (reason: unknown) => { if (session.current(scope)) session.report(reason); };
+  const refresh = () => session.refresh();
+  function selectRoom(id: string) { session.selectRoom(id); setParams(id ? {room: id} : {}); }
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState("");
   const [editId, setEditId] = useState("");
@@ -76,153 +64,36 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
   const [threadId, setThreadId] = useState("");
   const [roomName, setRoomName] = useState("");
   const [expressions, setExpressions] = useState<WebExpression[]>([]);
-  const [stickerResourceKey, setStickerResourceKey] = useState("");
-  const [attachments, setAttachments] = useState<WebUpload[]>([]);
-  const [localSubmission, setLocalSubmission] = useState<LocalSubmission | null>(null);
-  const [unread, setUnread] = useState(0);
-
   const end = useRef<HTMLDivElement>(null);
   const messagesNode = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
-  const activeRoomId = useRef("");
-  const attachmentsRef = useRef<WebUpload[]>([]);
 
   const room = rooms.find(item => item.id === roomId);
   const profile = profiles.find(item => item.id === profileId);
   const latestMessageId = snapshot.messages.at(-1)?.id ?? "";
 
-  const releaseAttachmentPreviews = (items: WebUpload[]) => {
-    for (const item of items) {
-      if (item.preview_url) URL.revokeObjectURL(item.preview_url);
-    }
-  };
+  useEffect(() => {
+    const requested = params.get("room");
+    if (requested !== null) session.selectRoom(requested);
+    void session.ensureLoaded();
+  }, [session, params, state.authenticated]);
 
-  const clearAttachments = () => {
-    setAttachments(current => {
-      releaseAttachmentPreviews(current);
-      return [];
-    });
-  };
-
-  const report = (reason: unknown) =>
-    setError(reason instanceof Error ? reason.message : "request_failed");
-
-  async function refresh() {
-    const [nextRooms, nextProfiles] = await Promise.all([
-      webRoomApi.rooms(),
-      webRoomApi.profiles()
-    ]);
-    const stableRooms =
-      roomId && room && !nextRooms.some(item => item.id === roomId)
-        ? [...nextRooms, room]
-        : nextRooms;
-    setRooms(stableRooms);
-    setProfiles(nextProfiles);
-    setProfileId(previous =>
-      nextProfiles.some(item => item.id === previous)
-        ? previous
-        : nextProfiles[0]?.id ?? ""
-    );
-  }
+  useEffect(() => { nearBottom.current = true; setMembers([]); setExpressions([]); }, [roomId]);
 
   useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-
-  useEffect(() => () => releaseAttachmentPreviews(attachmentsRef.current), []);
-
-  useEffect(() => {
-    let active = true;
-    Promise.all([webRoomApi.rooms(), webRoomApi.profiles()])
-      .then(([nextRooms, nextProfiles]) => {
-        if (!active) return;
-        setRooms(nextRooms);
-        setProfiles(nextProfiles);
-        setProfileId(nextProfiles[0]?.id ?? "");
-      })
-      .catch(reason => {
-        if (active) report(reason);
-      });
+    const update = () => session.setReader("full", nearBottom.current && !document.hidden && document.hasFocus());
+    update();
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("focus", update);
+    window.addEventListener("blur", update);
     return () => {
-      active = false;
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("focus", update);
+      window.removeEventListener("blur", update);
+      session.removeReader("full");
     };
-  }, []);
-
-  useEffect(() => {
-    const nextRoomId = room?.id ?? "";
-    const roomChanged = activeRoomId.current !== nextRoomId;
-    if (roomChanged) {
-      activeRoomId.current = nextRoomId;
-      setReply("");
-      setMembers([]);
-      setExpressions([]);
-      setStickerResourceKey("");
-      clearAttachments();
-      setUnread(0);
-      setLocalSubmission(null);
-      nearBottom.current = true;
-    }
-    setSnapshot(current => snapshotForRoomTransition(current, nextRoomId));
-    setConnection(room?.enabled ? "connecting" : "disconnected");
-    if (!room?.enabled) return;
-
-    let closed = false;
-    const stream = new EventSource(webRoomApi.eventsUrl(room.id));
-    stream.addEventListener("snapshot", event => {
-      if (closed) return;
-      try {
-        const next: WebSnapshot = JSON.parse((event as MessageEvent<string>).data);
-        if (
-          next.room_id !== room.id ||
-          !Array.isArray(next.messages) ||
-          !Array.isArray(next.outbox)
-        ) {
-          throw new Error("invalid_room_snapshot");
-        }
-        setSnapshot(current => {
-          if (current.room_id === next.room_id && current.messages.length) {
-            const previousIds = new Set(current.messages.map(item => item.id));
-            const newCount = next.messages.filter(item => !previousIds.has(item.id)).length;
-            if (newCount && !nearBottom.current) setUnread(value => value + newCount);
-            if (nearBottom.current) setUnread(0);
-          } else {
-            setUnread(0);
-          }
-          return next;
-        });
-        setConnection("connected");
-      } catch {
-        setError("invalid_room_snapshot");
-        setSnapshot(empty);
-        setUnread(0);
-        stream.close();
-        setConnection("unavailable");
-      }
-    });
-    stream.addEventListener("revoked", () => {
-      if (closed) return;
-      setSnapshot(empty);
-      setReply("");
-      setUnread(0);
-      setRooms(current => current.filter(item => item.id !== room.id));
-      setParams({});
-      setConnection("unavailable");
-      stream.close();
-    });
-    stream.addEventListener("unavailable", () => {
-      if (closed) return;
-      setConnection("unavailable");
-      stream.close();
-    });
-    stream.onerror = () => {
-      if (!closed) setConnection("reconnecting");
-    };
-    return () => {
-      closed = true;
-      stream.close();
-    };
-  }, [room?.id, room?.enabled, streamVersion]);
+  }, [session, roomId]);
 
   useEffect(() => {
     if (!room?.enabled) return;
@@ -237,22 +108,14 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     return () => {
       active = false;
     };
-  }, [room?.id, room?.enabled, streamVersion]);
+  }, [room?.id, room?.enabled, state.authenticated]);
 
   useEffect(() => {
     if (nearBottom.current) end.current?.scrollIntoView({ block: "end" });
   }, [latestMessageId, snapshot.outbox.length]);
 
-  useEffect(() => {
-    if (
-      localSubmission &&
-      snapshot.outbox.some(item => item.client_message_id === localSubmission.payload.client_message_id)
-    ) {
-      setLocalSubmission(null);
-    }
-  }, [snapshot.outbox, localSubmission]);
-
   async function action(run: () => Promise<void>) {
+    if (!session.current(scope) || session.getSnapshot().busy) return;
     setBusy(true);
     setError("");
     try {
@@ -271,6 +134,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
         { display_name: name, avatar_url: avatar },
         profiles.find(item => item.id === editId)
       );
+      if (!session.current(scope)) return;
       await refresh();
       setProfileId(saved.id);
       setEditId("");
@@ -293,97 +157,15 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
     });
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (
-      !room ||
-      !profile ||
-      (!text.trim() && !stickerResourceKey && !attachments.length) ||
-      localSubmission
-    ) return;
-
-    const pending: LocalSubmission = {
-      room: room.id,
-      payload: {
-        client_message_id: crypto.randomUUID(),
-        profile_id: profile.id,
-        text,
-        reply_to_message_id: reply,
-        sticker_resource_key: stickerResourceKey,
-        attachment_ids: attachments.map(item => item.id)
-      },
-      phase: "submitting",
-      displayName: profile.display_name,
-      avatarUrl: profile.avatar_url,
-      attachments: [...attachments]
-    };
-    setLocalSubmission(pending);
-    await dispatch(pending);
-  }
-
-  async function dispatch(pending: LocalSubmission) {
-    setBusy(true);
-    setError("");
-    setLocalSubmission({ ...pending, phase: "submitting" });
-    try {
-      const accepted = await webRoomApi.send(pending.room, pending.payload);
-      setSnapshot(current => withAcceptedOutbox(current, pending.room, accepted));
-      setLocalSubmission(null);
-      setText("");
-      setReply("");
-      setStickerResourceKey("");
-      clearAttachments();
-      nearBottom.current = true;
-    } catch (reason) {
-      setLocalSubmission({ ...pending, phase: "unknown" });
-      report(reason);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addAttachments(files: Iterable<File> | null) {
-    if (!room || !room.can_post || demoMode || busy || localSubmission || !files) return;
-    const selected = Array.from(files);
-    if (!selected.length) return;
-    if (attachments.length + selected.length > 4) {
-      setError(tx("A message can include up to 4 attachments.", "每条消息最多可附加 4 个文件。"));
-      return;
-    }
-    setBusy(true);
-    setError("");
-    let firstFailure: unknown = null;
-    try {
-      for (const file of selected) {
-        try {
-          const uploaded = await webRoomApi.uploadAttachment(room.id, file);
-          const preview = uploaded.mime_type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
-          setAttachments(current => [
-            ...current,
-            { ...uploaded, ...(preview ? {preview_url: preview} : {}) }
-          ].slice(0, 4));
-        } catch (reason) {
-          firstFailure ??= reason;
-        }
-      }
-      if (firstFailure) report(firstFailure);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function removeAttachment(id: string) {
-    setAttachments(current => {
-      const removed = current.find(item => item.id === id);
-      if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url);
-      return current.filter(item => item.id !== id);
-    });
-  }
+  async function submit(event: FormEvent) { event.preventDefault(); await session.send(); }
+  const addAttachments = (files: Iterable<File> | null) => session.addAttachments(files);
+  const removeAttachment = (id: string) => session.removeAttachment(id);
 
   function jumpTo(messageId: string) {
     const node = document.getElementById(`web-room-message-${messageId}`);
     if (!node) return;
     nearBottom.current = false;
+    session.setReader("full", false);
     node.scrollIntoView({ behavior: "smooth", block: "center" });
     node.classList.add("is-jump-target");
     window.setTimeout(() => node.classList.remove("is-jump-target"), 1200);
@@ -391,7 +173,8 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
 
   function jumpLatest() {
     nearBottom.current = true;
-    setUnread(0);
+    session.setReader("full", !document.hidden && document.hasFocus());
+    session.markRead();
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
@@ -420,6 +203,9 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             "Discord 与网页参与者，共用一个对话。"
           )}</p>
         </div>
+        {room?.enabled && <button type="button" className="paper-button" onClick={() => void openCompanion()}>
+          {tx("Pop out · Room Companion", "弹出 · Room Companion")}
+        </button>}
         <button type="button" className="paper-button" disabled={busy} onClick={() => void action(refresh)}>
           {tx("Refresh rooms", "刷新房间")}
         </button>
@@ -436,7 +222,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               value={roomId}
               disabled={busy || Boolean(localSubmission)}
               onChange={event => {
-                setParams(event.target.value ? { room: event.target.value } : {});
+                selectRoom(event.target.value);
                 setText("");
               }}
             >
@@ -519,8 +305,9 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   thread_id: threadId.trim(),
                   name: roomName.trim()
                 });
+                if (!session.current(scope)) return;
                 await refresh();
-                setParams({ room: saved.id });
+                selectRoom(saved.id);
               });
             }}>
               <label>
@@ -596,7 +383,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
             onScroll={event => {
               const node = event.currentTarget;
               nearBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
-              if (nearBottom.current) setUnread(0);
+              session.setReader("full", nearBottom.current && !document.hidden && document.hasFocus());
             }}
           >
             {!snapshot.messages.length && (
@@ -659,9 +446,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                     <small>{
                       localSubmission.phase === "submitting"
                         ? tx("Submitting", "提交中")
-                        : localSubmission.phase === "accepted"
-                          ? tx("Website accepted", "网站已接收")
-                          : tx("Submission result unknown", "提交结果未知")
+                        : tx("Submission result unknown", "提交结果未知")
                     }</small>
                   </header>
                   {localSubmission.payload.text && <p className="room-preserve-text">{localSubmission.payload.text}</p>}
@@ -797,7 +582,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
                   "The website did not receive a definitive acceptance result. Retrying uses the same client message ID.",
                   "网站没有收到明确的接收结果。重试会使用相同的 Client Message ID，不会创建第二个逻辑发送。"
                 )}</p>
-                <button type="button" className="paper-button" disabled={busy || demoMode} onClick={() => void dispatch(localSubmission)}>
+                <button type="button" className="paper-button" disabled={busy || demoMode} onClick={() => void session.retry()}>
                   {tx("Check / retry safely", "安全核对／重试")}
                 </button>
                 <button type="button" disabled={busy} onClick={() => setLocalSubmission(null)}>

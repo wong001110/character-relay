@@ -1,4 +1,4 @@
-import { roomRequest } from "./roomHttp";
+import { roomRequest, RoomRequestError } from "./roomHttp";
 
 export interface WebProfile { id: string; display_name: string; avatar_url: string; version: number }
 export interface WebRoom { id: string; name: string; connection_id: string; guild_id: string; channel_id: string; thread_id: string; enabled: boolean; can_manage: boolean; can_post: boolean }
@@ -55,7 +55,7 @@ async function uploadAttachment(id: string, file: File): Promise<WebUpload> {
         detail = body.detail;
       }
     } catch { /* Keep the safe status fallback. */ }
-    throw new Error(detail);
+    throw new RoomRequestError(response.status, detail);
   }
   return response.json() as Promise<WebUpload>;
 }

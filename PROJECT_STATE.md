@@ -6,10 +6,10 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `3223130996afacc78590aa43c26141ec7d78c753` (through merged PR #221) |
-| Active direction | [Portal UI follow-up](docs/plans/portal-ui-followup-2026-10-04.md) after live review of Characters, Toolbox/Lab, Deployments and Knowledge Fabric |
-| Current instruction | Portal UI follow-up is implemented, verified and squash-merged. Continue live observation; PR #219 MYT timestamp consistency remains a separate open change. No manual production deployment was requested. |
-| Development branch | None for the completed Portal UI batch; PR #219 remains separate/open |
+| Repository / baseline | `wong001110/character-relay` / fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` (through merged PR #222) |
+| Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
+| Current instruction | Implement and verify Room Companion on a focused branch/PR. No merge or manual production deploy. Preserve independent PR #219. |
+| Development branch | `feat/web-room-companion-pip-20261004`, from fetched main `a07b9540672bf1f349079903656e5ad5e09b3162` |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
 | Merge / production deploy | PR #214, #215, #217, #218 and #221 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
@@ -333,3 +333,56 @@ Exact-head GitHub evidence for PR #214:
 - Public Demo Status Check **37101121674** passed.
 - These are offline/CI results. The reaction fix still requires the user's real Discord → Web
   observation, and PR #214 remains draft with no merge or manual production deployment.
+
+## Room Companion capability checkpoint (2026-10-04)
+
+Fetched origin/main matches actual checkout `a07b9540672bf1f349079903656e5ad5e09b3162`.
+Accepted scope and phase acceptance were written before runtime refactoring. Synthetic local
+Playwright spike on system Chromium 151 confirms Document PiP requestWindow via click,
+same-origin CSS/DOM rendering, textarea input and Send click, including with a second local
+tab foreground; close produces pagehide and keeps parent alive. Headless browser API/DOM
+evidence does not establish visible always-on-top behavior or Dots Computer Control usability.
+No Dots runtime is available. Bundled Playwright Chromium is absent; system Chromium is used
+without bypassing browser API/security policies. Next: shared session and minimal Companion.
+
+## Room Companion implementation checkpoint (2026-10-04)
+
+Portal now owns a single account/room-scoped Web Room session across routes. Full Room and
+Companion share snapshot, read/unread state, draft, pending lock and immutable retry payload.
+Document PiP uses a React portal plus same-origin styles; absent/rejected PiP has an explicitly
+in-app fallback. Management/pickers remain local. Scope and stream epochs are separate so
+reconnect permits REST send and does not strand in-flight requests. SSE acknowledgement prevents
+late POST responses from downgrading delivered receipts or resurrecting reconciled echoes.
+Page restoration rechecks auth, is actor-bound, and rejects stale pre-logout responses.
+
+Web typecheck, **157 tests**, production and mock builds passed. Full Python **1,411 passed,
+7 skipped, 11 warnings**; focused Web Room/Portal **54 passed** (overlapping, not additive).
+Ruff passed; mypy passed across **343 sources**. Independent controller/source review and
+**15 targeted manual mutants killed** supplement these checks. One actor-restore test gap
+was strengthened with a shared-access-room counterexample and rerun; no unresolved survivor.
+The current application code `7c40a995b41c8c7896317c0981009bfd292cbc6e` passed the real isolated
+API browser journey with Chromium 151 headless, native PiP/CSS/input/SSE, one EventSource
+(max active 1), shared draft, structured reply/media, unread 0/1/2/0, real pending/idempotent
+send and synthetic Connector claim→uncertain receipt. Closing PiP/routes retain session;
+logout closes/clears it. Absent and rejected PiP fallbacks pass. Persisted page event handlers
+recheck real auth, and a held real 200 response released after actual logout cannot revive
+user/session/stream. `.venv/bin/python scripts/verify_room_companion.py --chromium /usr/bin/chromium`
+exited 0; script Ruff/format checks passed. This verifies handlers, not actual BFCache navigation. Dots desktop
+visibility/input and real Gemini foreground behavior remain unverified. No backend routes,
+credentials/dependency contracts, live sends, production data or deployments were changed.
+
+
+Delivery: branch `feat/web-room-companion-pip-20261004` is pushed; focused
+[PR #223](https://github.com/wong001110/character-relay/pull/223) is open against main.
+The initial Git push transport 503 was corrected with per-command HTTP/1.1; remote branch
+identity was verified. GitHub API access subsequently succeeded and PR creation is confirmed;
+the earlier API network blocker is resolved, with no duplicate credential request.
+The required `api.github.com` domain addition was saved in the environment draft while
+preserving package-manager presets. No merge or manual deployment was performed.
+
+Next gate: inspect PR #223's checks at its actual final head and review the implementation;
+then user-owned Dots cloud-computer visibility/click/input qualification using a separate
+Gemini tab. The companion/browser implementation is verified; computer-agent usability is
+unverified. Check results should be read from the exact-head GitHub receipts before any merge,
+not inferred from local passes. PostgreSQL/Docker and live Discord/provider qualification
+are not claimed by the local run; the seven Python skips remain environment-gated.

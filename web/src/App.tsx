@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { AdminSettings } from "./AdminSettings";
@@ -15,6 +15,8 @@ import { AuthScreen } from "./AuthScreen";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { WebRoomWorkspace } from "./WebRoomWorkspace";
+import { WebRoomSessionProvider, useWebRoomSession } from "./WebRoomSessionProvider";
+import { RoomCompanionHost } from "./RoomCompanionHost";
 import { DeploymentCenter } from "./DeploymentCenter";
 import { deploymentApi, type CharacterDeployment } from "./deploymentApi";
 import { useI18n } from "./i18n";
@@ -68,6 +70,15 @@ function initialTheme(): PortalTheme {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<PortalTheme>(initialTheme);
+  return <WebRoomSessionProvider><RoomCompanionHost theme={theme}>
+    <PortalApp theme={theme} setTheme={setTheme} />
+  </RoomCompanionHost></WebRoomSessionProvider>;
+}
+
+function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispatch<React.SetStateAction<PortalTheme>>}) {
+  const {session: roomSession} = useWebRoomSession();
+  const authEpoch = useRef(0);
   const { language, t } = useI18n();
   const location = useLocation();
   const navigateTo = useNavigate();
@@ -77,6 +88,8 @@ export default function App() {
   );
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const currentUserId = useRef("");
+  currentUserId.current = user?.id ?? "";
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [cards, setCards] = useState<CharacterCard[]>([]);
@@ -89,7 +102,6 @@ export default function App() {
   const routeCard = characterRoute?.cardId
     ? cards.find((card) => card.id === characterRoute.cardId) ?? null
     : null;
-  const [theme, setTheme] = useState<PortalTheme>(initialTheme);
   const [adminOpen, setAdminOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
@@ -102,9 +114,13 @@ export default function App() {
   const workspaceAllowed =
     authConfig !== null && (!authConfig.authentication_required || user !== null);
   const publicDemo = isPublicDemoUser(user);
+  useEffect(() => {
+    roomSession.configure(!isMockPortal && !booting ? user?.id ?? "" : "", publicDemo);
+  }, [roomSession, user?.id, booting, publicDemo]);
 
   useEffect(() => {
     let active = true;
+    const epoch = authEpoch.current;
     async function bootstrap() {
       if (isMockPortal) {
         setAuthConfig({
@@ -127,7 +143,7 @@ export default function App() {
         setAuthConfig(config);
         try {
           const currentUser = await api.getCurrentUser();
-          if (active) setUser(currentUser);
+          if (active && epoch === authEpoch.current) setUser(currentUser);
         } catch (reason) {
           if (!config.authentication_required && active) setBootError(null);
           else if (active && reason instanceof Error && !reason.message.includes("401")) {
@@ -147,8 +163,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const restore = (event: PageTransitionEvent) => {
+      if (!event.persisted || isMockPortal) return;
+      const epoch = ++authEpoch.current;
+      void api.getCurrentUser().then(current => {
+        if (!active || epoch !== authEpoch.current) return;
+        const sameActor = currentUserId.current === current.id;
+        if (!sameActor) clearWorkspaceState();
+        setUser(current);
+        void roomSession.restore(current.id, isPublicDemoUser(current));
+        if (sameActor) void load();
+      }).catch(() => {
+        if (!active || epoch !== authEpoch.current) return;
+        roomSession.configure("", false);
+        clearWorkspaceState();
+        setUser(null);
+      });
+    };
+    window.addEventListener("pageshow", restore);
+    return () => { active = false; window.removeEventListener("pageshow", restore); };
+  }, [roomSession]);
+
+  useEffect(() => {
     if (workspaceAllowed && !requestedComponentLibrary && !isMockPortal) void load();
-  }, [workspaceAllowed, requestedComponentLibrary]);
+  }, [workspaceAllowed, requestedComponentLibrary, user?.id]);
 
   useEffect(() => {
     if (!requestedComponentLibrary || !workspaceAllowed) return;
@@ -183,6 +222,7 @@ export default function App() {
   }, [theme]);
 
   async function load() {
+    const epoch = authEpoch.current;
     try {
       const [nextCards, nextTargets, nextDeployments, nextRuntime] = await Promise.all([
         api.listCharacters(),
@@ -190,12 +230,14 @@ export default function App() {
         deploymentApi.listDeployments(),
         api.getRuntimeStatus()
       ]);
+      if (epoch !== authEpoch.current) return;
       setCards(nextCards);
       setTargets(nextTargets);
       setDeployments(nextDeployments);
       setRuntime(nextRuntime);
       setError(null);
     } catch (reason) {
+      if (epoch !== authEpoch.current) return;
       setError(reason instanceof Error ? reason.message : t("app.openShelfError"));
     }
   }
@@ -213,15 +255,20 @@ export default function App() {
   }
 
   async function logout() {
+    authEpoch.current++;
+    roomSession.configure("", false);
     try {
       await api.logout();
     } finally {
+      roomSession.configure("", false);
       setUser(null);
       clearWorkspaceState();
     }
   }
 
   function accountDeleted() {
+    authEpoch.current++;
+    roomSession.configure("", false);
     setUser(null);
     clearWorkspaceState();
   }
