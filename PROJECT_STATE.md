@@ -372,11 +372,17 @@ visibility/input and real Gemini foreground behavior remain unverified. No backe
 credentials/dependency contracts, live sends, production data or deployments were changed.
 
 
-Next delivery gate: push the focused branch and open a PR; do not merge or deploy.
-GitHub API access currently fails at the egress proxy (`api.github.com` CONNECT 403), before
-credential validation. Native Git fetch succeeds; no duplicate GitHub secret is requested.
-The required `api.github.com` addition is saved in the environment draft (package-manager
-presets preserved). Apply/review/save and publish that environment change before retrying PR
-creation and exact-head GitHub CI inspection. Local checks do not claim GitHub CI, PostgreSQL,
-Docker image, live Discord/provider or Dots desktop acceptance. The seven full-Python skips
-remain environment-gated; no assertion or test has been disabled.
+Delivery: branch `feat/web-room-companion-pip-20261004` is pushed; focused
+[PR #223](https://github.com/wong001110/character-relay/pull/223) is open against main.
+The initial Git push transport 503 was corrected with per-command HTTP/1.1; remote branch
+identity was verified. GitHub API access subsequently succeeded and PR creation is confirmed;
+the earlier API network blocker is resolved, with no duplicate credential request.
+The required `api.github.com` domain addition was saved in the environment draft while
+preserving package-manager presets. No merge or manual deployment was performed.
+
+Next gate: inspect PR #223's checks at its actual final head and review the implementation;
+then user-owned Dots cloud-computer visibility/click/input qualification using a separate
+Gemini tab. The companion/browser implementation is verified; computer-agent usability is
+unverified. Check results should be read from the exact-head GitHub receipts before any merge,
+not inferred from local passes. PostgreSQL/Docker and live Discord/provider qualification
+are not claimed by the local run; the seven Python skips remain environment-gated.
