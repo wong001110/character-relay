@@ -70,3 +70,23 @@
 .portal-theme-dark .room-companion-error { color: #ffadb5; }
 @media (max-width: 430px) { .room-companion.is-in-app, .room-companion-floating { right: .5rem; bottom: .5rem; width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); } }
 @media (prefers-reduced-motion: reduce) { .room-companion * { scroll-behavior: auto; } }
+
+.room-companion-size-controls { flex: 0 1 auto; min-height: 0; max-height: min(10rem, 34dvh); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: .4rem; padding: .5rem .75rem; border-bottom: 1px solid var(--companion-border); }
+.room-companion-size-summary { display: grid; gap: .3rem; color: var(--companion-muted); font-size: .75rem; }
+.room-companion-size-presets { display: flex; flex-wrap: wrap; gap: .3rem; }
+.room-companion-size-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .35rem; }
+.room-companion-size-fields label { display: grid; flex: 1 1 6.5rem; min-width: 0; gap: .15rem; font-size: .72rem; }
+.room-companion-size-fields input { width: 100%; min-width: 0; min-height: 2rem; padding: .25rem .4rem; border: 1px solid var(--companion-border); border-radius: .35rem; background: var(--companion-paper); color: var(--companion-ink); font: inherit; font-size: .8rem; }
+.room-companion-size-fields input:focus-visible { outline: 3px solid #617ba9; outline-offset: 2px; }
+.room-companion-size-fields input[aria-invalid="true"] { border-color: #9c2735; }
+.room-companion-size-hint, .room-companion-size-error { margin: 0; font-size: .72rem; overflow-wrap: anywhere; }
+.room-companion-size-hint { color: var(--companion-muted); }
+.room-companion-size-notice { flex: 0 0 auto; margin: 0; padding: .4rem .75rem; color: var(--companion-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.room-companion-size-error { color: #9c2735; }
+.portal-theme-dark .room-companion-size-error { color: #ffadb5; }
+.portal-theme-dark .room-companion-size-fields input[aria-invalid="true"] { border-color: #ffadb5; }
+@media (max-height: 420px) {
+  /* The size panel and composer scroll independently in a tiny native window. */
+  .room-companion.is-pip .room-companion-history { min-height: 0; padding-bottom: 0; }
+  .room-companion.is-pip .room-companion-size-controls { max-height: 20dvh; }
+}

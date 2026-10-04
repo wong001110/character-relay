@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "./i18n";
 import { RoomCompanion, companionMessageText } from "./RoomCompanion";
+import { RoomCompanionSizeControls, type RoomCompanionSizeOptions } from "./RoomCompanionSizeControls";
 import { WebRoomSession, type WebRoomSessionState } from "./webRoomSession";
 import type { WebMessage, WebOutbox } from "./webRoomApi";
 
@@ -38,12 +39,12 @@ function state(next: Partial<WebRoomSessionState> = {}): WebRoomSessionState {
   };
 }
 
-function render(current = state(), language = "en", pip = true) {
+function render(current = state(), language = "en", pip = true, sizeControls?: RoomCompanionSizeOptions) {
   vi.stubGlobal("window", {
     location: { href: "https://relay.example/portal", origin: "https://relay.example" },
     localStorage: { getItem: () => language }
   });
-  return renderToStaticMarkup(<I18nProvider><RoomCompanion state={current} session={new WebRoomSession()} onClose={vi.fn()} onOpenFull={vi.fn()} pip={pip} /></I18nProvider>);
+  return renderToStaticMarkup(<I18nProvider><RoomCompanion state={current} session={new WebRoomSession()} onClose={vi.fn()} onOpenFull={vi.fn()} pip={pip} sizeControls={sizeControls} /></I18nProvider>);
 }
 
 function submitButton(markup: string): string {
@@ -170,6 +171,55 @@ describe("Room Companion presentation contracts", () => {
     expect(markup).toContain("最小化房间伴随窗口");
     expect(markup).toContain("应用内伴随面板");
     expect(submitButton(markup)).toContain("发送");
+  });
+
+  it("offers a collapsed size disclosure only for a native window with a resize callback", () => {
+    const sizeControls = { size: { width: 380, height: 480 }, onResize: vi.fn(() => true) };
+    const markup = render(state(), "en", true, sizeControls);
+    expect(markup).toMatch(/<button[^>]*data-companion-size-toggle="true"[^>]*aria-expanded="false"[^>]*>Window size<\/button>/u);
+    expect(markup).not.toContain('class="room-companion-size-controls"');
+    expect(submitButton(markup)).toContain(">Send</button>");
+    expect(render(state(), "en", false, sizeControls)).not.toContain("Window size");
+    expect(render()).not.toContain("Window size");
+    expect(render(state(), "zh-CN", true, sizeControls)).toContain("窗口尺寸");
+  });
+
+  it.each(["en", "zh-CN"])("offers a direct resize action only when the native actual size differs from the selection in %s", language => {
+    const sizeControls = { size: { width: 1083, height: 781 }, preferredSize: { width: 380, height: 480 }, onResize: vi.fn(() => true) };
+    const markup = render(state(), language, true, sizeControls);
+    expect(markup).toMatch(/<button[^>]*data-companion-restore-size="true"/u);
+    expect(markup).toContain(language === "en" ? ">Use 380×480</button>" : ">应用 380×480</button>");
+    expect(markup).toContain(language === "en" ? "Browser kept a different size" : "浏览器窗口尺寸与所选不同");
+    expect(markup).not.toContain('class="room-companion-size-controls"');
+    expect(submitButton(markup)).toContain(language === "en" ? "Send" : "发送");
+    expect(render(state(), language, true, { ...sizeControls, size: { ...sizeControls.preferredSize } })).not.toContain('data-companion-restore-size="true"');
+    expect(render(state(), language, false, sizeControls)).not.toContain('data-companion-restore-size="true"');
+    expect(render(state(), language, true, { size: sizeControls.size, onResize: sizeControls.onResize })).not.toContain('data-companion-restore-size="true"');
+  });
+
+  it.each(["en", "zh-CN"])("labels content dimensions, actual size and browser limits in %s", language => {
+    render(state(), language);
+    const markup = renderToStaticMarkup(<I18nProvider><RoomCompanionSizeControls id="size-panel" size={{ width: 612, height: 494 }} onResize={vi.fn(() => true)} /></I18nProvider>);
+    expect(markup).toContain('id="size-panel"');
+    expect(markup).toContain('data-companion-reader-ignore="true"');
+    expect(markup).toContain('data-companion-size-current="true"');
+    expect(markup).toContain("612×494");
+    const widthInput = markup.match(/<input\b[^>]*name="width"[^>]*>/u)?.[0];
+    const heightInput = markup.match(/<input\b[^>]*name="height"[^>]*>/u)?.[0];
+    expect(widthInput).toContain('type="number"');
+    expect(widthInput).toContain('min="320" max="2000" step="1"');
+    expect(widthInput).toContain('value="612"');
+    expect(heightInput).toContain('type="number"');
+    expect(heightInput).toContain('min="320" max="1600" step="1"');
+    expect(heightInput).toContain('value="494"');
+    expect(markup).toContain("380×480");
+    expect(markup).toContain("480×640");
+    expect(markup).toContain(language === "en" ? "Width (content px)" : "宽度（内容区像素）");
+    expect(markup).toContain(language === "en" ? "Height (content px)" : "高度（内容区像素）");
+    expect(markup).toContain(language === "en" ? "Browser may limit size" : "浏览器可能限制尺寸");
+    expect(submitButton(markup)).toContain(language === "en" ? "Apply size" : "应用尺寸");
+    expect(markup).not.toContain("Shared draft");
+    expect(markup).not.toContain("<textarea");
   });
 
   it("removes only a leading transport URL that matches an already displayed structured reply", () => {

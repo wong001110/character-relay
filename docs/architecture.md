@@ -21,7 +21,14 @@ submission. Identity/room epochs isolate late REST results; stream replacement i
 same-room reconnect does not abandon an in-flight send. Full `WebRoomWorkspace` retains management
 forms, expressions picker and DOM scroll refs. `RoomCompanionHost` presents `RoomCompanion` through
 a React portal in Document PiP, or a clearly labelled in-app fallback, without another transport.
-`documentPip.ts` copies same-origin CSS only and binds window cleanup. Closing PiP or changing
+`documentPip.ts` copies same-origin CSS only, validates content-size requests, attempts one
+post-open resize using measured native frame margins, and binds window cleanup. Chromium requires
+activation inside PiP to resize it; a visible Use W×H action and size form apply the selection
+synchronously on a genuine click when the browser overrides opening dimensions. The Host
+owns ephemeral sizing preference/actual dimensions, establishes an opening geometry baseline
+before remembering native resize changes, and clears its observation timers on close/scope loss.
+Native resize observations and the isolated
+`RoomCompanionSizeControls` form never update Room draft or transport state. Closing PiP or changing
 Portal route leaves the session running; logout/revocation resets private state. Parent pagehide
 disposes the session; persisted page restoration rechecks authentication before reopening reads.
 The accepted MVP and browser-agent acceptance boundary are in the

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "./i18n";
+import { RoomCompanionSizeControls, type RoomCompanionSizeOptions } from "./RoomCompanionSizeControls";
 import { unmatchedOutbox, webRoomCanSubmit, type WebMessage } from "./webRoomApi";
 import type { WebRoomSession, WebRoomSessionState } from "./webRoomSession";
 import "./room-companion.css";
@@ -94,12 +95,13 @@ function CompactMessage({ message, onReply, disabled, tx }: {
   );
 }
 
-export function RoomCompanion({ state, session, onClose, onOpenFull, pip }: {
+export function RoomCompanion({ state, session, onClose, onOpenFull, pip, sizeControls }: {
   state: WebRoomSessionState;
   session: WebRoomSession;
   onClose: () => void;
   onOpenFull: () => void;
   pip: boolean;
+  sizeControls?: RoomCompanionSizeOptions;
 }) {
   const { language } = useI18n();
   const tx: Translate = (en, cn) => language === "zh-CN" ? cn : en;
@@ -111,8 +113,18 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip }: {
   const atLatest = useRef(true);
   const syncReader = useRef<() => void>(() => {});
   const [minimized, setMinimized] = useState(false);
+  const [sizeExpanded, setSizeExpanded] = useState(false);
+  const [restoreFailed, setRestoreFailed] = useState(false);
   const minimizedRef = useRef(minimized);
   minimizedRef.current = minimized;
+  const preferredSize = sizeControls?.preferredSize;
+  const needsSizeRestore = Boolean(pip && preferredSize && sizeControls && (
+    preferredSize.width !== sizeControls.size.width || preferredSize.height !== sizeControls.size.height
+  ));
+
+  useEffect(() => {
+    if (!needsSizeRestore) setRestoreFailed(false);
+  }, [needsSizeRestore]);
 
   const room = state.rooms.find(item => item.id === state.roomId);
   const profile = state.profiles.find(item => item.id === state.profileId);
@@ -222,9 +234,29 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip }: {
           <span role="status" className={`room-companion-connection is-${state.connection}`}>{connectionLabels[state.connection] || state.connection}</span>
         </div>
         <div className="room-companion-controls">
+          {needsSizeRestore && sizeControls && preferredSize && <button type="button" data-companion-reader-ignore="true" data-companion-restore-size="true" onClick={() => {
+            // Native PiP resizing needs this real child-window click. Keep the
+            // browser call synchronous so its user activation is available.
+            let accepted = false;
+            try {
+              accepted = sizeControls.onResize(preferredSize);
+            } catch {
+              // The browser may reject resizing after the window is opened.
+            }
+            setRestoreFailed(!accepted);
+            if (!accepted) {
+              setSizeExpanded(true);
+              setMinimized(false);
+            }
+          }}>{tx(`Use ${preferredSize.width}×${preferredSize.height}`, `应用 ${preferredSize.width}×${preferredSize.height}`)}</button>}
+          {pip && sizeControls && <button type="button" data-companion-reader-ignore="true" data-companion-size-toggle="true" aria-controls={`companion-size-${id}`} aria-expanded={sizeExpanded && !minimized} onClick={() => {
+            setSizeExpanded(!sizeExpanded);
+            if (minimized) setMinimized(false);
+          }}>{tx("Window size", "窗口尺寸")}</button>}
           <button type="button" data-companion-reader-ignore="true" onClick={onOpenFull}>{tx("Open full room", "打开完整房间")}</button>
           <button type="button" data-companion-reader-ignore="true" aria-controls={`companion-content-${id}`} aria-expanded={!minimized} aria-label={minimized ? tx("Expand Room Companion", "展开房间伴随窗口") : tx("Minimize Room Companion", "最小化房间伴随窗口")} onClick={() => {
             activated.current = false;
+            setSizeExpanded(false);
             minimizedRef.current = !minimized;
             setMinimized(!minimized);
             syncReader.current();
@@ -232,6 +264,15 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip }: {
           <button type="button" data-companion-reader-ignore="true" aria-label={tx("Close Room Companion", "关闭房间伴随窗口")} onClick={onClose}>×</button>
         </div>
       </header>
+      {needsSizeRestore && preferredSize && <p className="room-companion-size-notice" role="status" data-companion-reader-ignore="true">{tx(
+        `Browser kept a different size. Click Use ${preferredSize.width}×${preferredSize.height} to apply your selection.`,
+        `浏览器窗口尺寸与所选不同，请点击应用 ${preferredSize.width}×${preferredSize.height}。`
+      )}</p>}
+      {restoreFailed && <p className="room-companion-error" role="alert" data-companion-reader-ignore="true">{tx(
+        "The browser could not resize this window. Try a smaller size or resize it manually.",
+        "浏览器无法调整此窗口。请尝试更小的尺寸，或手动调整窗口。"
+      )}</p>}
+      {pip && sizeControls && sizeExpanded && !minimized && <RoomCompanionSizeControls {...sizeControls} id={`companion-size-${id}`} />}
       <button type="button" className="room-companion-unread" data-companion-reader-ignore={minimized || undefined} disabled={minimized || !room} onClick={markLatest}>
         {tx(`${state.unread} unread · View latest`, `${state.unread} 条未读 · 查看最新`)}
       </button>
