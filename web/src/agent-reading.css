@@ -4,6 +4,4 @@
 .agent-reading-controls button { font: inherit; cursor: pointer; padding: 5px 8px; }
 .agent-reading-controls button:disabled { cursor: default; }
 .agent-reading-meta, .agent-reading-scope { color: var(--muted, #5c6168); font-size: .8rem; }
-.agent-reading-batch { max-height: 45vh; overflow: auto; border-top: 1px solid var(--line, #c4c8cd); margin-top: 8px; }
-.agent-reading-batch > div { border-top: 1px solid var(--line, #c4c8cd); padding: 6px 0; }
 .room-companion-content > .agent-reading-panel { flex: 0 1 auto; min-height: 2.5rem; max-height: 45%; overflow: auto; margin: 4px 8px; }

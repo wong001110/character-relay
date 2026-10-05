@@ -17,15 +17,8 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.responses import Response, StreamingResponse
 
-from echo_masque.agent_reading import (
-    AgentReadingComplete,
-    AgentReadingGap,
-    AgentReadingStart,
-    AgentReadingStatus,
-)
 from echo_masque.api.dependencies import AuthContextDependency, CurrentUserDependency
 from echo_masque.api.routes.connectors import _authorize_connector
-from echo_masque.persistence.agent_reading_repository import AgentReadingRepository
 from echo_masque.persistence.web_room_repository import WebRoomRepository
 from echo_masque.web_room_message import message_summary as _message_summary
 from echo_masque.web_room_message import web_message_view
@@ -362,95 +355,6 @@ async def messages(
     room_id: str, request: Request, user: CurrentUserDependency
 ) -> dict[str, object]:
     return await asyncio.to_thread(_snapshot, _repo(request), room_id, user.id)
-
-
-def agent_reading_no_store(response: Response) -> None:
-    response.headers["Cache-Control"] = "no-store"
-
-
-@router.get(
-    "/rooms/{room_id}/agent-reading/{profile_id}",
-    response_model=AgentReadingStatus,
-    dependencies=[Depends(agent_reading_no_store)],
-)
-def agent_reading_status(
-    room_id: str,
-    profile_id: str,
-    request: Request,
-    context: AuthContextDependency,
-) -> AgentReadingStatus:
-    assert context.session_id is not None  # real_session dependency
-    return AgentReadingRepository(_repo(request)).status(
-        room_id,
-        context.user.id,
-        profile_id,
-        session_id=context.session_id,
-    )
-
-
-@router.post(
-    "/rooms/{room_id}/agent-reading/{profile_id}/gap",
-    response_model=AgentReadingStatus,
-    dependencies=[Depends(agent_reading_no_store)],
-)
-def agent_reading_gap(
-    room_id: str,
-    profile_id: str,
-    payload: AgentReadingGap,
-    request: Request,
-    context: AuthContextDependency,
-) -> AgentReadingStatus:
-    assert context.session_id is not None
-    return AgentReadingRepository(_repo(request)).gap(
-        room_id,
-        context.user.id,
-        profile_id,
-        session_id=context.session_id,
-        event_id=payload.event_id,
-    )
-
-
-@router.post(
-    "/rooms/{room_id}/agent-reading/{profile_id}/batch",
-    response_model=AgentReadingStatus,
-    dependencies=[Depends(agent_reading_no_store)],
-)
-def agent_reading_batch(
-    room_id: str,
-    profile_id: str,
-    payload: AgentReadingStart,
-    request: Request,
-    context: AuthContextDependency,
-) -> AgentReadingStatus:
-    assert context.session_id is not None
-    return AgentReadingRepository(_repo(request)).batch(
-        room_id,
-        context.user.id,
-        profile_id,
-        session_id=context.session_id,
-    )
-
-
-@router.post(
-    "/rooms/{room_id}/agent-reading/{profile_id}/complete",
-    response_model=AgentReadingStatus,
-    dependencies=[Depends(agent_reading_no_store)],
-)
-def agent_reading_complete(
-    room_id: str,
-    profile_id: str,
-    payload: AgentReadingComplete,
-    request: Request,
-    context: AuthContextDependency,
-) -> AgentReadingStatus:
-    assert context.session_id is not None
-    return AgentReadingRepository(_repo(request)).complete(
-        room_id,
-        context.user.id,
-        profile_id,
-        session_id=context.session_id,
-        batch_id=payload.batch_id,
-    )
 
 
 @router.put("/rooms/{room_id}/messages/{message_id}/reactions", status_code=204)

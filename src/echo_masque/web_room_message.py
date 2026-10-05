@@ -1,4 +1,4 @@
-"""Shared full-room and batch presentation; source provenance stays unchanged."""
+"""Shared Web Room presentation; source provenance stays unchanged."""
 
 from typing import Any
 

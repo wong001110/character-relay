@@ -1,105 +1,58 @@
-# Web Room Agent reading
+# Web Room Agent reading: session reminders
 
-The opt-in Agent reading panel is available in the full Web Room and Room Companion.
-It uses the current authenticated Web participant profile and the existing shared room
-connection. Human unread counts continue to mean viewing, not completed Agent work.
+The user replaced durable processing batches with a frontend counter after PR #227.
+Full Web Room and native/fallback Room Companion share the current Portal session,
+existing SSE and draft. Human unread remains separate.
 
 ## Dots operating loop
 
-1. Open the granted room, choose the intended **Chat as** participant, and click
-   **Enable Agent reading**. Initial activation and reload require a recovery reread.
-2. At low frequency, read only visible HTML under **`[data-agent-summary]`**. This
-   contains status, room/participant IDs, observed revision, pending change count and
-   completed-through revision. Start with approximately 60 seconds between checks;
-   the interval is an Agent-side operating preference, not a website timer or rate-limit
-   guarantee. Read the rendered browser DOM; fetching the SPA index HTML does not contain live
-   state. Do not refresh the browser or take a screenshot just to check this status.
-3. For `pending` or `needs_reread`, click **Read batch**, then read the visible
-   **`[data-agent-batch-id]`** section. Decide whether to reply using the normal composer.
-   Reading, focus and scrolling do not complete a batch. Choosing no reply can still
-   constitute completed processing.
-4. Click **Complete this batch** only after deciding on its fixed range. Late arrivals,
-   edits, deletes and newer recovery gaps remain for a subsequent round. Then wait.
-5. If `processing` appears after reopening the panel, inspect the existing captured
-   batch instead of trying to create another. If `needs_reread` appears alongside a
-   captured batch, a newer recovery gap occurred; complete the original batch only
-   after processing it, then read a recovery batch.
-6. For `unknown`, pause message decisions. After connectivity returns, use **Retry
-   status** if needed. A successful reconnect does not complete recovery work.
+1. Enter a room, select your participant and enable Agent reading. The current recent
+   messages are context; reminders start at 0. Companion shows the latest five messages.
+2. At low frequency (for example every 60 seconds), read `[data-agent-summary]`. It exposes
+   room/participant IDs, connection state and the current session's new-message count.
+3. If connected with a nonzero count, read the normal latest room/Companion messages,
+   decide whether to reply and use the existing composer if appropriate.
+4. Click **Done · clear reminders** (`[data-agent-clear]`) when finished. All currently
+   counted reminders clear immediately. A later observed incoming message increments again.
+5. Wait for the next low-frequency check. No automatic reply, page reload or tool invocation.
 
-State attributes on `[data-agent-reading]` are `data-status`, `data-room-id`,
-`data-profile-id`, `data-observed-revision`, `data-pending-count` and
-`data-needs-reread`. Unknown numeric fields are the literal `unknown`, never a misleading
-zero. Batch attributes are `data-agent-batch-id`, `data-from-revision` and
-`data-to-revision`; items expose `data-agent-item-id`, `data-source-revision`,
-`data-room-revision`, `data-change` and `data-item-state`.
+The panel exposes `[data-agent-reading]`, `data-room-id`, `data-profile-id`,
+`data-status=disabled|disconnected|pending|idle`, numeric `data-pending-count` and
+`data-connection`. A disconnected zero is not proof that no messages arrived.
 
-## What progress means
+## Session boundaries
 
-Progress persists on the server separately for the authenticated account, published
-room and owned participant profile. Switching rooms/profiles or reloading does not
-transfer it to another participant. Enabling is session-only; re-enable after reload.
-Own message echoes are filtered only by the verified delivered-source participant ID.
-Another participant with the same name remains eligible.
+Enable/join starts at zero. Refresh, document restart, account/room/participant change or
+disable/re-enable starts again. Route changes and Companion close/reopen preserve the shared
+session counter. Scrolling, focus and human unread acknowledgements never clear it.
+Only new live IDs count. Edits/deletions/reactions do not count; verified own profile echoes
+are excluded using the existing canonical author identity, never a display-name match.
+Deduplication retains at most512 message IDs for the latest-64 snapshot transport; it stores
+no extra bodies. Reappearance after that bounded window is not durable-history tracking.
 
-The panel covers **collected current state**, including stored messages older than the
-normal 64-message recent view. Message edits, deletion tombstones and content loss count
-as changes even if the latest message ID is unchanged. Multiple intervening edits can
-coalesce into one current source version; this is not a historical edit event journal.
-Presentation-only names, avatars, pins and reaction counts follow the existing source
-version policy and do not create processing work.
+Unexpected stream loss/offline/manual reconnect establishes a new baseline from the next
+snapshot. Already counted reminders remain until clear; messages missed during an outage
+are not guaranteed to count. Normal immediate finite SSE renewal retains its baseline.
+Visible connection status and the heartbeat watchdog remain. Dots element-wait capability
+and browser-tool permission stability are not verified or guaranteed.
 
-Each batch holds at most 64 immutable message/revision references and a server-selected
-ending room revision. A changed/deleted captured source renders a placeholder rather
-than substituting later content or resurrecting erased text. Changed live reply context
-is likewise withheld. A following batch obtains the current change.
+## Backend retirement and rollback
 
-No message bodies are copied into processing storage. SQL queries bound source-body
-reads and use a scoped aggregate for pending counts. Completion accepts only the active
-server batch ID; callers cannot choose a cutoff. Duplicate last completion is harmless.
-A recovery batch clears only the gap generation it captured; a later gap survives.
+The previous `/api/web-chat/rooms/{room}/agent-reading/{profile}` status/gap/batch/complete
+routes, schemas, repository and frontend client are removed. UI counting sends no processing
+API requests and persists no progress. Normal authenticated room/message/send APIs remain.
+Legacy `web_room_agent_reading_cursors` metadata and `web-room-agent-reading-v1` initialization
+are retained for database compatibility and owner-deletion cleanup only. Fresh bootstrap may
+create the empty compatibility table; it never receives new reading progress. Existing
+records are not purged or dropped. Reverting this change restores the previous feature;
+there is no destructive downgrade or manual production operation in this delivery.
 
-## Connection and coverage limits
-
-The browser receives existing SSE updates autonomously. Source revision metadata also
-notifies the panel about changes outside the recent view. Heartbeats establish current
-transport activity; a bounded normal-rollover grace distinguishes the server's orderly
-60-second stream renewal from an unexpected disconnect. Unexpected failure, stale
-heartbeat, malformed state, failed reading calls and activation/reload require rereading.
-
-Fresh access/transport does **not** prove complete Discord Gateway history. The current
-Connector can miss observations during interruption or capacity failure; this feature
-cannot retrieve unknown messages or certify upstream coverage. Recovery completion
-means explicit review of the currently collected state only. The visible scope notice
-retains this limitation even when no collected changes are pending.
-
-HTML reads still pass through Dots' browser-tool authorization. This design reduces
-repeated page work and duplicate context; it does not guarantee elimination of permission
-refusals. Waiting on DOM changes has not been qualified and is not required by this release.
-
-## Developer checks and rollback
-
-No new package, secret or configuration toggle is needed. The additive table is
-`web_room_agent_reading_cursors`, with the named `web-room-agent-reading-v1` schema
-revision. Existing database initialization creates and records it idempotently.
-Foreign keys cascade cursor metadata when account, room or profile is deleted.
-Existing real-session, room-access, profile ownership, freshness, demo and restricted
-CLI credential guards apply; this does not expand the read-only CLI's routes or grants.
-
-Run:
+Reproduce synthetic acceptance after building the Portal:
 
 ```bash
-.venv/bin/python -m pytest tests/test_agent_reading.py tests/test_web_rooms.py tests/test_agent_reading_postgres.py
-npm run test --prefix web
-npm run build --prefix web
 .venv/bin/python scripts/verify_agent_reading.py --chromium /usr/bin/chromium
 ```
 
-The PostgreSQL test runs only on the explicitly disposable `echo_masque_test` database
-with the existing destructive-test opt-in; it is selected in PostgreSQL CI. Browser
-acceptance starts an isolated real API/database, uses synthetic source ingress and real
-SSE/UI actions, and makes no Discord webhook calls.
-
-Disable Agent reading to stop the panel's processing workflow without changing normal
-chat. Reverting the implementation retires routes/presentation; retained reference-only
-cursor metadata does not require a destructive production rollback.
+This uses an isolated actual API/database, Chromium, synthetic sources/delivery receipts
+and native SSE/Companion. It does not send a Discord webhook or contact deployed services.
+Actual Dots cloud-browser acceptance remains a separate qualification.

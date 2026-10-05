@@ -1,221 +1,112 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { agentReadingApi, type AgentReadingStatus } from "./agentReadingApi";
-import { webRoomApi, type WebRoom, type WebSnapshot } from "./webRoomApi";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { webRoomApi, type WebMessage, type WebRoom, type WebSnapshot } from "./webRoomApi";
 import { WebRoomSession } from "./webRoomSession";
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>(yes => { resolve = yes; });
-  return {promise, resolve};
-}
-const flush = async () => { for (let count = 0; count < 20; count++) await Promise.resolve(); };
-const room = (id: string): WebRoom => ({id, name: id, connection_id: "connection", guild_id: "guild", channel_id: "channel", thread_id: "", enabled: true, can_manage: false, can_post: true});
-const snapshot = (revision = 1, roomId = "a"): WebSnapshot => ({room_id: roomId, source_revision: revision, messages: [], outbox: [], history_limit: 64});
-const status = (roomId = "a", profileId = "p", next: Partial<AgentReadingStatus> = {}): AgentReadingStatus => ({room_id: roomId, profile_id: profileId, cursor_revision: 0, observed_revision: 1, pending_count: 1, needs_reread: false, gap_generation: 0, history_scope: "recorded_current_state", batch: null, ...next});
-const captured = (next: Partial<AgentReadingStatus> = {}) => status("a", "p", {needs_reread: true, gap_generation: 1, batch: {id: "captured", from_revision: 0, to_revision: 1, gap_generation: 1, needs_reread: true, items: []}, ...next});
-class Stream {
-  close = vi.fn();
-  onerror: EventSource["onerror"] = null;
-  listeners = new Map<string, EventListenerOrEventListenerObject[]>();
-  addEventListener(type: string, callback: EventListenerOrEventListenerObject) { this.listeners.set(type, [...this.listeners.get(type) ?? [], callback]); }
-  emit(type: string, value: unknown = {}) {
-    const event = {data: JSON.stringify(value)} as MessageEvent<string>;
-    for (const callback of this.listeners.get(type) ?? []) { if (typeof callback === "function") callback(event); else callback.handleEvent(event); }
+const room = (id = "r"): WebRoom => ({id, name: id, connection_id: "c", guild_id: "g", channel_id: "ch", thread_id: "", enabled: true, can_manage: false, can_post: true});
+const message = (id: string, extra: Partial<WebMessage> = {}): WebMessage => ({id, author_id: "human", display_name: "Dots", avatar_url: "", actor_type: "discord_user", text: id, deleted: false, content_available: true, created_at: null, edited_at: null, reply_to_message_id: "", reply_preview: null, attachments: [], custom_emojis: [], stickers: [], mentions: [], embeds: [], poll: null, reactions: [], pinned: false, ...extra});
+const snapshot = (messages: WebMessage[], roomId = "r"): WebSnapshot => ({room_id: roomId, messages, outbox: [], history_limit: 64});
+class FakeStream {
+  close = vi.fn(); onerror: EventSource["onerror"] = null;
+  private handlers = new Map<string, EventListenerOrEventListenerObject[]>();
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject) { this.handlers.set(type, [...this.handlers.get(type) ?? [], listener]); }
+  emit(type: string, data: unknown = {}) {
+    const event = {data: JSON.stringify(data)} as MessageEvent<string>;
+    for (const listener of this.handlers.get(type) ?? []) { if (typeof listener === "function") listener(event); else listener.handleEvent(event); }
   }
   fail() { this.onerror?.call(this as unknown as EventSource, new Event("error")); }
 }
 const sessions: WebRoomSession[] = [];
-async function harness() {
-  const states = new Map<string, AgentReadingStatus>();
-  const current = (r: string, p: string) => states.get(`${r}:${p}`) ?? status(r, p);
-  const api = {
-    ...agentReadingApi,
-    status: vi.fn(async (r: string, p: string) => current(r, p)),
-    gap: vi.fn(async (r: string, p: string, _event: string) => {
-      const previous = current(r, p);
-      const next = {...previous, needs_reread: true, gap_generation: previous.gap_generation + 1};
-      states.set(`${r}:${p}`, next);
-      return next;
-    }),
-    batch: vi.fn(async (_r: string, _p: string) => captured()),
-    complete: vi.fn(async (_r: string, _p: string, _id: string) => status("a", "p", {cursor_revision: 1, pending_count: 0, gap_generation: 1}))
-  };
-  const streams: Stream[] = [];
-  const create = vi.fn(() => { const stream = new Stream(); streams.push(stream); return stream as unknown as EventSource; });
-  const session = new WebRoomSession({...webRoomApi, rooms: async () => [room("a"), room("b")], profiles: async () => [{id: "p", display_name: "Dots", avatar_url: "", version: 1}, {id: "q", display_name: "Other", avatar_url: "", version: 1}]}, create, api);
-  sessions.push(session);
-  session.configure("account", false);
-  await session.ensureLoaded();
-  session.selectRoom("a");
-  streams[0].emit("snapshot", snapshot());
-  const activate = async () => { session.setAgentReading(true); await flush(); };
-  return {session, api, streams, create, states, activate};
+async function harness(initial = [message("old")], enable = true) {
+  const api = {...webRoomApi, rooms: vi.fn(async () => [room(), room("other")]), profiles: vi.fn(async () => [{id: "p", display_name: "Dots", avatar_url: "", version: 1}, {id: "q", display_name: "Second", avatar_url: "", version: 1}])};
+  const streams: FakeStream[] = [];
+  const session = new WebRoomSession(api, () => { const stream = new FakeStream(); streams.push(stream); return stream as unknown as EventSource; });
+  sessions.push(session); session.configure("user", false); await session.ensureLoaded(); session.selectRoom("r");
+  streams[0].emit("snapshot", snapshot(initial)); if (enable) session.setAgentReading(true);
+  return {session, streams, api, emit: (messages: WebMessage[]) => streams.at(-1)!.emit("snapshot", snapshot(messages)), count: () => session.getSnapshot().agentReading?.pendingCount};
 }
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => { for (const session of sessions.splice(0)) session.dispose(); vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { sessions.splice(0).forEach(session => session.dispose()); vi.useRealTimers(); vi.restoreAllMocks(); });
 
-describe("explicit Agent progress on the existing session", () => {
-  it("is opt-in, shares one stream, reports activation as a durable gap and ignores human reading", async () => {
+describe("frontend participation reminders", () => {
+  it("starts at zero with 64 old messages and needs no status or batch API", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const h = await harness(Array.from({length: 64}, (_, i) => message(`old-${i}`)));
+    expect(h.count()).toBe(0); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("baselines the first snapshot if enabled before connection", async () => {
+    const h = await harness([], false); h.session.selectRoom("other"); h.session.setAgentReading(true);
+    h.streams.at(-1)!.emit("snapshot", snapshot([message("history")], "other"));
+    expect(h.count()).toBe(0);
+    h.streams.at(-1)!.emit("snapshot", snapshot([message("history"), message("new")], "other"));
+    expect(h.count()).toBe(1);
+  });
+  it("counts each new live ID once, including unavailable content", async () => {
+    const h = await harness(); const next = [message("old"), message("new"), message("unknown", {content_available: false})];
+    h.emit(next); h.emit(next); expect(h.count()).toBe(2);
+  });
+  it("ignores edits, tombstones, reaction updates and a returning recent ID", async () => {
+    const h = await harness(); h.emit([message("new")]); expect(h.count()).toBe(1);
+    h.emit([message("old", {text: "edited", edited_at: "2026-10-05T01:00:00Z"}), message("new", {deleted: true}), message("tombstone", {deleted: true})]);
+    expect(h.count()).toBe(1);
+  });
+  it("does not trust display names and suppresses only verified selected-participant echoes", async () => {
     const h = await harness();
-    expect(h.api.gap).not.toHaveBeenCalled();
-    await h.activate();
-    expect(h.create).toHaveBeenCalledOnce();
-    expect(h.api.gap).toHaveBeenCalledWith("a", "p", expect.any(String));
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-    h.session.setReader("full", true); h.session.markRead(); h.session.setReader("companion", true);
-    expect(h.api.complete).not.toHaveBeenCalled();
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
+    h.emit([message("own", {author_id: "web:p", actor_type: "web_participant"}), message("other", {author_id: "web:q", actor_type: "web_participant"}), message("same-name")]);
+    expect(h.count()).toBe(2);
   });
-  it("refreshes same-ID edits by source revision and never polls status on a heartbeat", async () => {
-    const h = await harness(); await h.activate();
-    h.api.status.mockClear();
-    h.streams[0].emit("snapshot", snapshot(2)); await flush();
-    expect(h.api.status).toHaveBeenCalledOnce();
-    h.streams[0].emit("snapshot", snapshot(2)); h.streams[0].emit("heartbeat"); await flush();
-    expect(h.api.status).toHaveBeenCalledOnce();
+  it("clears all current reminders synchronously, then counts later arrivals", async () => {
+    const h = await harness(); h.emit([message("a"), message("b")]); expect(h.count()).toBe(2);
+    h.session.clearAgentReminders(); expect(h.count()).toBe(0);
+    h.emit([message("a"), message("b"), message("c")]); expect(h.count()).toBe(1);
   });
-  it("coalesces concurrent presentation refresh requests and refreshes again if a revision arrived in flight", async () => {
-    const h = await harness(); await h.activate();
-    const pending = deferred<AgentReadingStatus>(); h.api.status.mockReturnValueOnce(pending.promise);
-    h.session.refreshAgentReading();
-    h.streams[0].emit("snapshot", snapshot(2)); h.streams[0].emit("snapshot", snapshot(3));
-    expect(h.api.status).toHaveBeenCalledOnce();
-    pending.resolve(status()); await flush();
-    expect(h.api.status).toHaveBeenCalledTimes(2);
+  it("is independent of human readers, focus acknowledgements and draft edits", async () => {
+    const h = await harness(); h.session.setReader("full", true); h.emit([message("new")]);
+    h.session.markRead(); h.session.patch({text: "Draft"});
+    expect(h.count()).toBe(1); expect(h.session.getSnapshot().unread).toBe(0);
   });
-  it("ignores a late response from a room that is no longer selected", async () => {
-    const h = await harness(); const pending = deferred<AgentReadingStatus>(); h.api.gap.mockReturnValueOnce(pending.promise);
-    h.session.setAgentReading(true); h.session.selectRoom("b"); h.streams[1].emit("snapshot", snapshot(1, "b")); await flush();
-    pending.resolve(status("a", "p", {pending_count: 999})); await flush();
-    expect(h.session.getSnapshot().agentReading?.status?.room_id).toBe("b");
-    expect(h.session.getSnapshot().agentReading?.status?.pending_count).not.toBe(999);
+  it("shares count and clear across presentations without another stream", async () => {
+    const h = await harness(); const full = vi.fn(); const companion = vi.fn();
+    const leave = h.session.subscribe(full); h.session.subscribe(companion);
+    h.emit([message("new")]); expect(full).toHaveBeenCalledOnce(); expect(companion).toHaveBeenCalledOnce();
+    leave(); h.session.clearAgentReminders(); expect(h.count()).toBe(0); expect(h.streams).toHaveLength(1);
   });
-  it("isolates late responses by participant even within the same room", async () => {
-    const h = await harness(); const pending = deferred<AgentReadingStatus>(); h.api.gap.mockReturnValueOnce(pending.promise);
-    h.session.setAgentReading(true); h.session.patch({profileId: "q"}); await flush();
-    pending.resolve(status("a", "p", {pending_count: 999})); await flush();
-    expect(h.session.getSnapshot().agentReading?.status?.profile_id).toBe("q");
-    expect(h.create).toHaveBeenCalledOnce();
+  it("starts at zero after disable/re-enable and participant changes", async () => {
+    const h = await harness(); h.emit([message("new")]); h.session.setAgentReading(false); h.session.setAgentReading(true); expect(h.count()).toBe(0);
+    h.emit([message("new"), message("later")]); h.session.patch({profileId: "q"}); expect(h.count()).toBe(0);
+    h.emit([message("later"), message("after-switch")]); expect(h.count()).toBe(1);
   });
-  it("cannot re-enable in demo or restore an in-flight result after logout", async () => {
-    const h = await harness(); const pending = deferred<AgentReadingStatus>(); h.api.gap.mockReturnValueOnce(pending.promise);
-    h.session.setAgentReading(true); h.session.configure("", false); pending.resolve(status()); await flush();
-    expect(h.session.getSnapshot().agentReading?.status).toBeUndefined();
-    h.session.configure("account", true); h.session.setAgentReading(true);
+  it("clears on room/account changes and rejects stale room stream events", async () => {
+    const h = await harness(); h.emit([message("new")]); h.session.selectRoom("other"); expect(h.count()).toBe(0);
+    h.streams[0].emit("snapshot", snapshot([message("stale")])); expect(h.count()).toBe(0);
+    h.session.configure("another-user", false); expect(h.session.getSnapshot().agentReading).toBeUndefined();
+  });
+  it("preserves counted reminders but baselines missed messages after unexpected reconnect", async () => {
+    const h = await harness(); h.emit([message("before")]); h.streams[0].fail();
+    expect(h.session.getSnapshot().connection).toBe("reconnecting"); expect(h.count()).toBe(1);
+    h.emit([message("before"), message("missed")]); expect(h.count()).toBe(1);
+    h.emit([message("before"), message("missed"), message("after")]); expect(h.count()).toBe(2);
+  });
+  it("baselines offline recovery without clearing prior reminders or draft", async () => {
+    const h = await harness(); h.emit([message("before")]); h.session.patch({text: "Draft"}); h.session.setOnline(false);
+    expect(h.session.getSnapshot().connection).toBe("disconnected"); h.session.clearAgentReminders();
+    h.session.setOnline(true); h.emit([message("before"), message("missed")]); expect(h.count()).toBe(0);
+    expect(h.session.getSnapshot().text).toBe("Draft"); expect(h.streams[0].close).toHaveBeenCalledOnce();
+  });
+  it("retains baseline across immediate natural rollover", async () => {
+    const h = await harness(); h.streams[0].emit("rollover"); h.streams[0].fail();
+    h.emit([message("old"), message("after-rollover")]); expect(h.count()).toBe(1);
+  });
+  it("baselines a failed natural rollover reopen", async () => {
+    const h = await harness(); h.streams[0].emit("rollover"); h.streams[0].fail(); h.streams[0].fail();
+    h.emit([message("old"), message("missed")]); expect(h.count()).toBe(0);
+  });
+  it("reconnects and baselines after silent heartbeat loss", async () => {
+    vi.useFakeTimers(); const h = await harness(); h.emit([message("new")]);
+    await vi.advanceTimersByTimeAsync(15_001); expect(h.session.getSnapshot().connection).toBe("connecting");
+    h.emit([message("new"), message("missed")]); expect(h.count()).toBe(1); expect(h.streams).toHaveLength(2);
+  });
+  it("rejects activation without authentication or in demo", async () => {
+    const h = await harness([], false); h.session.configure("user", true); h.session.setAgentReading(true);
     expect(h.session.getSnapshot().agentReading?.enabled).not.toBe(true);
-    expect(h.api.gap).toHaveBeenCalledOnce();
-  });
-  it("disables the shared opt-in before entering demo mode", async () => {
-    const h = await harness(); await h.activate();
-    h.session.configure("account", true); h.session.refreshAgentReading(); await flush();
-    expect(h.session.getSnapshot().agentReading?.enabled).toBe(false);
-    expect(h.api.status).not.toHaveBeenCalled();
-  });
-  it("completes only the captured server batch ID, leaving later changes pending", async () => {
-    const h = await harness(); await h.activate(); await h.session.readAgentBatch();
-    h.api.status.mockResolvedValue(captured({observed_revision: 2, pending_count: 2}));
-    h.streams[0].emit("snapshot", snapshot(2)); await flush();
-    h.api.complete.mockResolvedValue(status("a", "p", {cursor_revision: 1, observed_revision: 2, pending_count: 1, gap_generation: 1}));
-    await h.session.completeAgentBatch();
-    expect(h.api.complete).toHaveBeenCalledWith("a", "p", "captured");
-    expect(h.session.getSnapshot().agentReading?.status?.cursor_revision).toBe(1);
-    expect(h.session.getSnapshot().agentReading?.status?.pending_count).toBe(1);
-  });
-  it("queues a gap occurring while a batch is being captured and disables confirmation during recovery", async () => {
-    const h = await harness(); await h.activate(); const pending = deferred<AgentReadingStatus>(); h.api.batch.mockReturnValueOnce(pending.promise);
-    const batch = h.session.readAgentBatch(); h.streams[0].fail();
-    await h.session.completeAgentBatch(); expect(h.api.complete).not.toHaveBeenCalled();
-    h.states.set("a:p", captured()); pending.resolve(captured()); await batch; await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2);
-    expect(h.session.getSnapshot().agentReading?.status?.gap_generation).toBe(2);
-    expect(h.session.getSnapshot().agentReading?.status?.batch?.gap_generation).toBe(1);
-  });
-  it("reports a new gap after an in-flight completion without erasing it", async () => {
-    const h = await harness(); await h.activate(); await h.session.readAgentBatch();
-    const pending = deferred<AgentReadingStatus>(); h.api.complete.mockReturnValueOnce(pending.promise);
-    const completion = h.session.completeAgentBatch(); h.streams[0].fail();
-    pending.resolve(status("a", "p", {cursor_revision: 1, pending_count: 0, gap_generation: 1})); await completion; await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2);
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-  });
-  it("keeps a lost gap response idempotent until explicit retry succeeds", async () => {
-    const h = await harness(); h.api.gap.mockRejectedValueOnce(new Error("lost response")); await h.activate();
-    expect(h.api.gap).toHaveBeenCalledOnce(); expect(h.session.getSnapshot().agentReading?.localGap).toBe(true);
-    await h.session.completeAgentBatch(); expect(h.api.complete).not.toHaveBeenCalled();
-    h.session.refreshAgentReading(); await flush();
-    expect(h.api.gap.mock.calls[0][2]).toBe(h.api.gap.mock.calls[1][2]);
-    expect(h.session.getSnapshot().agentReading?.localGap).toBe(false);
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-  });
-  it.each(["status", "batch", "complete"] as const)("durably reports uncertainty after a lost %s response instead of resetting to idle", async operation => {
-    const h = await harness(); await h.activate(); if (operation === "complete") await h.session.readAgentBatch();
-    h.api[operation].mockRejectedValueOnce(new Error("network"));
-    if (operation === "status") h.session.refreshAgentReading(); else if (operation === "batch") await h.session.readAgentBatch(); else await h.session.completeAgentBatch();
-    await flush(); expect(h.session.getSnapshot().agentReading?.localGap).toBe(true); expect(h.api.gap).toHaveBeenCalledOnce();
-    h.session.refreshAgentReading(); await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2); expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-  });
-  it("treats malformed nested batch display data as uncertainty and reports a durable gap on retry", async () => {
-    const h = await harness(); await h.activate();
-    const malformed = captured(); malformed.batch!.items = [{message_id: "m", source_revision: 1, room_revision: 1, change: "new", state: "current", message: {
-      id: "m", text: "Untrusted message", display_name: "Alice", avatar_url: "", actor_type: "discord_user", deleted: false, content_available: true,
-      attachments: [], custom_emojis: [], mentions: [], stickers: [], embeds: [], poll: {question: {cannotRender: true}}, reply_preview: null
-    }}] as never;
-    h.api.batch.mockResolvedValueOnce(malformed); await h.session.readAgentBatch();
-    expect(h.session.getSnapshot().agentReading?.status?.batch).toBeNull(); expect(h.session.getSnapshot().agentReading?.localGap).toBe(true);
-    expect(h.session.getSnapshot().agentReading?.error).toBe("invalid_agent_reading_status");
-    await h.session.completeAgentBatch(); expect(h.api.complete).not.toHaveBeenCalled();
-    h.session.refreshAgentReading(); await flush(); expect(h.api.gap).toHaveBeenCalledTimes(2);
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-  });
-  it("rejects malformed or foreign status and requires a durable recovery", async () => {
-    const h = await harness(); h.api.gap.mockResolvedValueOnce(status("foreign")); await h.activate();
-    expect(h.session.getSnapshot().agentReading?.status).toBeNull(); expect(h.session.getSnapshot().agentReading?.localGap).toBe(true);
-    await h.session.readAgentBatch(); expect(h.api.batch).not.toHaveBeenCalled();
-    h.session.refreshAgentReading(); await flush(); expect(h.session.getSnapshot().agentReading?.status?.room_id).toBe("a");
-  });
-});
-
-describe("bounded transport gap detection", () => {
-  it("closes a still-live socket on browser offline and durably reports the gap before online status recovery", async () => {
-    const h = await harness(); await h.activate(); h.session.patch({text: "Preserved draft"});
-    h.session.setOnline(false); expect(h.streams[0].close).toHaveBeenCalledOnce();
-    h.streams[0].emit("heartbeat"); h.streams[0].emit("snapshot", snapshot(2)); await flush();
-    expect(h.session.getSnapshot().connection).toBe("disconnected"); expect(h.session.getSnapshot().agentReading?.localGap).toBe(true);
-    expect(h.api.gap).toHaveBeenCalledOnce(); expect(h.session.getSnapshot().text).toBe("Preserved draft");
-    h.session.setOnline(true); await flush(); h.streams[1].emit("snapshot", snapshot(2)); await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2); expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-    expect(h.create).toHaveBeenCalledTimes(2); expect(h.session.getSnapshot().text).toBe("Preserved draft");
-  });
-  it("allows one immediate normal rollover without inventing a persistent gap", async () => {
-    const h = await harness(); await h.activate(); h.streams[0].emit("rollover"); h.streams[0].fail();
-    await vi.advanceTimersByTimeAsync(3000); h.streams[0].emit("snapshot", snapshot()); await flush();
-    expect(h.api.gap).toHaveBeenCalledOnce(); expect(h.session.getSnapshot().agentReading?.localGap).toBe(false);
-    await vi.advanceTimersByTimeAsync(2000); expect(h.api.gap).toHaveBeenCalledOnce();
-  });
-  it("treats a second failure within rollover grace as an actual gap", async () => {
-    const h = await harness(); await h.activate(); h.streams[0].emit("rollover"); h.streams[0].fail(); h.streams[0].fail(); await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2);
-  });
-  it("bounds normal reopen grace to five seconds", async () => {
-    const h = await harness(); await h.activate(); h.streams[0].emit("rollover"); h.streams[0].fail();
-    await vi.advanceTimersByTimeAsync(5000); expect(h.api.gap).toHaveBeenCalledTimes(2);
-    h.streams[0].emit("snapshot", snapshot()); await flush();
-    expect(h.session.getSnapshot().agentReading?.status?.needs_reread).toBe(true);
-  });
-  it("detects silent transport loss within fifteen seconds, but never polls status on healthy heartbeats", async () => {
-    const h = await harness(); await h.activate();
-    for (let count = 0; count < 3; count++) { await vi.advanceTimersByTimeAsync(5000); h.streams[0].emit("heartbeat"); }
-    expect(h.api.gap).toHaveBeenCalledOnce(); expect(h.api.status).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(15000); await flush();
-    expect(h.api.gap).toHaveBeenCalledTimes(2); expect(h.create).toHaveBeenCalledTimes(2); expect(h.session.getSnapshot().connection).toBe("connecting");
-  });
-  it("does not suppress malformed snapshots even immediately after a normal rollover marker", async () => {
-    const h = await harness(); await h.activate(); h.streams[0].emit("rollover"); h.streams[0].emit("snapshot", {room_id: "a", messages: [], outbox: [], source_revision: "not a revision"}); await flush();
-    expect(h.session.getSnapshot().connection).toBe("unavailable"); expect(h.api.gap).toHaveBeenCalledTimes(2); expect(h.streams[0].close).toHaveBeenCalledOnce();
-  });
-  it("cancels watchdogs when the shared panel is disabled or the session is disposed", async () => {
-    const h = await harness(); await h.activate(); h.session.setAgentReading(false); await vi.advanceTimersByTimeAsync(20000);
-    expect(h.api.gap).toHaveBeenCalledOnce(); expect(h.create).toHaveBeenCalledOnce();
+    h.session.configure("", false); h.session.setAgentReading(true); expect(h.session.getSnapshot().agentReading).toBeUndefined();
   });
 });

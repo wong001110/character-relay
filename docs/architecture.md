@@ -58,29 +58,22 @@ separate, and the observer disconnects when the surface closes or minimizes.
 The accepted MVP and browser-agent acceptance boundary are in the
 [Room Companion plan](plans/web-room-companion-2026-10-04.md).
 
-### Web Room Agent processing ownership
+### Web Room Agent reminder ownership
 
-Human read/unread remains presentation-derived. Opt-in Agent processing instead uses
-`AgentReadingRepository` and the additive `web_room_agent_reading_cursors` table,
-scoped by authenticated user, published room and owned participant profile. The existing
-`RoomSourceRecord` current-state source/room revisions drive pending changes, including
-older edits and tombstones. SQL caps source body reads; scoped counts exclude only verified
-own participant echoes. Room/profile/source locks serialize batch capture and completion;
-foreign-key cascades retire metadata with the owning account/room/profile.
+Human read/unread remains presentation-derived. Opt-in Agent reading uses only in-memory
+WebRoomSession state, shared by the full room and native/fallback Companion. Enabling or
+changing account/room/participant starts a zero counter against current context. New live
+message IDs increment it; edits, tombstones, repeated snapshots and verified selected-profile
+web echoes do not. Only the explicit clear button resets counted reminders. Existing
+actor_type=web_participant / author_id=web:<profile_id> derives from trusted delivery receipts.
+No new backend API, browser storage, durable cursor or copied transcript is used for counting.
 
-An active batch stores immutable source references and a server-selected cutoff, not
-message bodies. Live content is exposed only for matching captured revisions; changed
-parents or deleted sources cannot introduce a later summary or resurrect earlier text.
-Completion advances only the captured cutoff and gap generation. The shared WebRoomSession
-owns opt-in UI state, scope-bound API requests and transport health; AgentReadingPanel is
-shared by the full room and Companion, with a narrow visible HTML summary before batch
-content. Neither focus, scroll nor human unread acknowledgement completes Agent work.
-
-The single existing SSE stream exposes room source revision, heartbeat and orderly rollover
-signals. Unexpected transport/read failure or activation/reload records sticky recovery
-work, while a bounded immediate normal renewal can avoid a spurious gap. All reading copy
-is explicitly limited to collected current state. This is not a Connector/Gateway replay
-journal or a guarantee of complete upstream history or browser-tool permission stability.
+The same SSE owns connection status, heartbeat and natural rollover. Unexpected reconnect
+baselines current messages while preserving reminders already counted; missed updates are
+not guaranteed. This is a current-session reminder, not evidence of complete history or
+completed processing. Retired Agent reading endpoints/schemas/repository are removed. The
+legacy cursor model and startup revision remain solely for schema compatibility and existing
+owner cleanup, with no active processing consumer or destructive purge.
 See [accepted contract](plans/web-room-agent-reading-2026-10-05.md) and
 [Agent operating/developer guide](developer/web-room-agent-reading.md).
 
