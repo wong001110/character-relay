@@ -14,6 +14,7 @@ import {
 import { AuthScreen } from "./AuthScreen";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
+import { CliAuthorize } from "./CliAuthorize";
 import { WebRoomWorkspace } from "./WebRoomWorkspace";
 import { WebRoomSessionProvider, useWebRoomSession } from "./WebRoomSessionProvider";
 import { RoomCompanionHost } from "./RoomCompanionHost";
@@ -82,6 +83,7 @@ function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispa
   const { language, t } = useI18n();
   const location = useLocation();
   const navigateTo = useNavigate();
+  const requestedCliAuthorization = location.pathname === "/cli/authorize";
   const requestedComponentLibrary = matchesPortalRoute(
     location.pathname,
     portalRoutes.componentLibrary
@@ -173,7 +175,7 @@ function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispa
         if (!sameActor) clearWorkspaceState();
         setUser(current);
         void roomSession.restore(current.id, isPublicDemoUser(current));
-        if (sameActor) void load();
+        if (sameActor && !requestedCliAuthorization) void load();
       }).catch(() => {
         if (!active || epoch !== authEpoch.current) return;
         roomSession.configure("", false);
@@ -183,11 +185,11 @@ function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispa
     };
     window.addEventListener("pageshow", restore);
     return () => { active = false; window.removeEventListener("pageshow", restore); };
-  }, [roomSession]);
+  }, [roomSession, requestedCliAuthorization]);
 
   useEffect(() => {
-    if (workspaceAllowed && !requestedComponentLibrary && !isMockPortal) void load();
-  }, [workspaceAllowed, requestedComponentLibrary, user?.id]);
+    if (workspaceAllowed && !requestedComponentLibrary && !requestedCliAuthorization && !isMockPortal) void load();
+  }, [workspaceAllowed, requestedComponentLibrary, requestedCliAuthorization, user?.id]);
 
   useEffect(() => {
     if (!requestedComponentLibrary || !workspaceAllowed) return;
@@ -383,7 +385,7 @@ function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispa
     );
   }
 
-  if (authConfig.authentication_required && !user) {
+  if ((authConfig.authentication_required || requestedCliAuthorization) && !user && !isMockPortal) {
     return (
       <AuthScreen
         config={authConfig}
@@ -393,6 +395,15 @@ function PortalApp({theme, setTheme}: {theme: PortalTheme; setTheme: React.Dispa
         }}
       />
     );
+  }
+
+  if (requestedCliAuthorization) {
+    return <CliAuthorize
+      key={user?.id ?? "signed-out"}
+      user={user}
+      disabled={publicDemo || isMockPortal}
+      initialCode={new URLSearchParams(location.search).get("user_code") ?? ""}
+    />;
   }
 
   if (isMockPortal && !requestedComponentLibrary) {

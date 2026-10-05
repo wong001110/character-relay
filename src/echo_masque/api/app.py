@@ -602,6 +602,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(SensitiveAuditMiddleware, repository=auth_repository)
     app.add_middleware(PublicDemoReadOnlyMiddleware)
+    from echo_masque.api.routes.cli_auth import CliCredentialBoundary
+    from echo_masque.api.routes.cli_auth import router as cli_auth_router
+    from echo_masque.cli_auth import CliAuthError, CliAuthService
+
+    app.add_middleware(CliCredentialBoundary, cookie_name=resolved.auth_cookie_name)
+    app.state.cli_auth_service = CliAuthService(database, resolved, WebRoomRepository(database))
+    app.state.cli_streams = {}
+    app.include_router(cli_auth_router)
+    from fastapi.exception_handlers import request_validation_exception_handler
+    from fastapi.exceptions import RequestValidationError
+
+    @app.exception_handler(RequestValidationError)
+    async def cli_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if request.url.path.startswith(("/api/cli-auth/", "/api/cli/")):
+            return JSONResponse({"error": "invalid_request"}, status_code=422,
+                                headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+        return await request_validation_exception_handler(request, exc)
+
+    @app.exception_handler(CliAuthError)
+    async def cli_auth_error(request: Request, exc: CliAuthError) -> JSONResponse:
+        return JSONResponse({"error": exc.code}, status_code=exc.status,
+                            headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
 
     async def run_turn_job(kind: str, raw_request: str) -> str:
         """Re-enter existing Runtime routes so scope and durable effects are revalidated."""
@@ -805,6 +827,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         @app.get("/toolbox", include_in_schema=False)
         @app.get("/toolbox/", include_in_schema=False)
         @app.get("/settings", include_in_schema=False)
+        @app.get("/cli/authorize", include_in_schema=False)
         @app.get("/settings/", include_in_schema=False)
         @app.get("/dev/ui", include_in_schema=False)
         @app.get("/dev/ui/", include_in_schema=False)

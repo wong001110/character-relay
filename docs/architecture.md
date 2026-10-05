@@ -13,6 +13,26 @@ provider adapters in `providers/`. `connectors/discord/src/` owns Gateway and tr
 verification/operator commands. No new service topology, supervisor platform or coding-agent
 runtime is part of the refactor. Agent Continuity execution state stays outside the checkout.
 
+### CLI read-only authorization boundary
+
+`cli_auth.py` owns durable public-client device requests and short-lived grants in
+separate `cli_device_authorizations` / `cli_readonly_grants` tables. It does not create
+AuthSession or CurrentUser contexts. `cli_auth_policy.py` and the outer HTTP boundary
+default-deny CLI-shaped credentials outside explicit read/revoke routes, including
+malformed/expired credentials in legacy development mode. The ordinary dependency also
+rejects those credentials before fallback. New `api/routes/cli_auth.py` uses cookie-only
+approval/management with session-bound CSRF and independently restricted Bearer reads.
+Existing WebRoomRepository membership, active account, server access and fresh source
+permission evidence remain authoritative; snapshot rendering is shared, without outbox.
+
+Grant/poll/account-binding decisions use conditional database updates, not process locks.
+Only stream admission leases remain per worker, as in Web Room SSE. Stream processing has
+a 5-second timeout and 1-second poll; checks after serialization precede data emission.
+`cli_client.py` is a separate memory-only console entry, fixed to the official HTTPS
+origin without redirects. Portal approval and account revoke use the real browser
+session; no grant token is exposed to/stored by the Portal. Feature defaults disabled.
+See [the API/client and rollback guide](developer/cli-readonly.md).
+
 ### Web Room presentation ownership
 
 `WebRoomSessionProvider` wraps Portal route presentations. `webRoomSession.ts` owns the selected

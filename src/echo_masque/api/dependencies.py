@@ -9,6 +9,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
+from echo_masque.cli_auth_policy import restricted_credential
 from echo_masque.config import Settings
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.quota_admission import owner_quota_admission
@@ -57,6 +58,12 @@ def optional_auth_context(
 ) -> AuthContext | None:
     resolved = settings(request)
     token = bearer_token or request.cookies.get(resolved.auth_cookie_name)
+    header_parts = request.headers.get("authorization", "").split(maxsplit=1)
+    if (token and restricted_credential(token)) or (
+        header_parts and restricted_credential(header_parts[-1])
+    ):
+        # Restricted credentials must never inherit a browser session or legacy fallback.
+        return None
     if token:
         context = auth_service(request).resolve(token)
         if context is not None:

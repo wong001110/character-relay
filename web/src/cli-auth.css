@@ -1,0 +1,11 @@
+.cli-authorization-card { width: min(720px, 100%); }
+.cli-authorization-card h1 { font-size: clamp(1.6rem, 5vw, 2.4rem); }
+.cli-authorization-account { overflow-wrap: anywhere; }
+.cli-authorization-code-form { display: grid; gap: 14px; margin: 24px 0; }
+.cli-authorization-details { border-top: 1px solid var(--auth-border); margin-top: 24px; padding-top: 20px; }
+.cli-authorization-details h2 { font-size: 1.1rem; margin: 20px 0 10px; }
+.cli-authorization-details dd small { display: block; margin-top: 5px; overflow-wrap: anywhere; }
+.cli-authorization-details code { font-size: .85em; overflow-wrap: anywhere; }
+.cli-authorization-rooms li { margin-bottom: 10px; }
+.cli-authorization-rooms code { display: block; margin-top: 4px; }
+.cli-authorization-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 24px 0; }

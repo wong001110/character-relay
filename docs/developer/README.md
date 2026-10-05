@@ -1,5 +1,7 @@
 # Developer guide
 
+Short-lived room-scoped client access: [CLI read-only integration](cli-readonly.md).
+
 Policy: [AGENTS.md](../../AGENTS.md). Current work: [PROJECT_STATE.md](../../PROJECT_STATE.md).
 Ownership: [architecture.md](../architecture.md). This page contains setup/check commands, not a
 second phase plan. Execution is now authorized for the accepted group-chat refactor. The current

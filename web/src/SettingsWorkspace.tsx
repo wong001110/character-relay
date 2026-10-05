@@ -7,6 +7,7 @@ import { AdministrationSettingsPanel } from "./AdministrationSettingsPanel";
 import { Button, FunctionalIcon, StickyLabel, StickyNote } from "./components/ui";
 import { useI18n } from "./i18n";
 import type { AdministrationRouteTab, SettingsWorkspaceTab } from "./portalRoutes";
+import { isMockPortal } from "./portalEnvironment";
 import { serverAccessApi, type ServerAccessOverview } from "./serverAccessApi";
 import { ServerAccessSettingsPanel } from "./ServerAccessSettingsPanel";
 import "./settings-access.css";
@@ -137,6 +138,7 @@ export function SettingsWorkspace({
               user={user}
               onLogout={onLogout}
               onDeleted={onAccountDeleted}
+              cliDisabled={publicDemo || isMockPortal}
             />
           )}
 

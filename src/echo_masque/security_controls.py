@@ -45,6 +45,10 @@ class QuotaService:
             message="Request rate limit exceeded.",
         )
 
+    def consume_cli_request(self, category: str, identity_hash: str, limit: int) -> None:
+        self._consume(key=f"cli:{category}:{identity_hash}", limit=limit, window_seconds=60,
+                      message="CLI request limit exceeded.")
+
     def consume_authoring_generation(self, user_id: str) -> None:
         self._consume(
             key=f"authoring-generation:{user_id}",
