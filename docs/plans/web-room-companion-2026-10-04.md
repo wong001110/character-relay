@@ -3,7 +3,8 @@
 Authority: the user authorized a focused branch and PR, phase commits and verification, then
 explicitly authorized the squash merge of PR #223. The subsequent user request authorizes the
 sizing repair and configurable resize controls below, and the user then explicitly authorized
-their squash merge as PR #224. Manual production deployment and production data changes remain
+their squash merge as PR #224. The user subsequently authorized merging the reading follow-up
+as PR #225. Manual production deployment and production data changes remain
 outside this authorization. Preserve the independent PR #219.
 Baseline is the actual fetched origin/main, not a handoff SHA. Existing Web Room participant and
 follow-up contracts remain authoritative for authentication, room scope, attachments and delivery.
@@ -102,5 +103,5 @@ Continue the requested repair with a narrow frontend follow-up to Dots' runtime 
 
 Use an isolated real-API/native PiP browser journey for delayed styles/media, user scroll retention,
 emoji and media affordances, alongside frontend checks. Dots live incoming-message/send acceptance
-remains separate. This follow-up does not extend the completed PR #224 merge authorization to a
-new merge or manual deployment.
+remains separate. The user's subsequent instruction authorizes squash merge of this follow-up
+as PR #225; manual deployment remains outside this authorization.

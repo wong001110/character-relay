@@ -6,14 +6,14 @@ Updated: **2026-10-05**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / fetched main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649` (through squash-merged PR #224) |
+| Repository / baseline | `wong001110/character-relay` / fetched main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00` (through squash-merged PR #225) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | Continue the requested Companion repair with Dots feedback: latest-position layout, custom emoji and readable GIF descriptions/viewing. PR #224 is merged; no further merge/manual deploy. Dots launch attribution and earlier permission-error cause remain unconfirmed; preserve Open full room behavior, live-message/send gates and independent PR #219. |
-| Development branch | `fix/room-companion-reading-20261005`, from the documentation closeout of main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
+| Current instruction | User authorized merging the reading repair; PR #225 is squash-merged. Dots launch attribution and earlier permission-error cause remain unconfirmed; preserve Open full room behavior, live-message/send gates and independent PR #219. No manual deploy. |
+| Development branch | PR #225 feature branch is merged; documentation-only receipt branch `docs/room-companion-reading-merge-20261005` starts from main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
-| Reading follow-up | IMPLEMENTED / LOCAL VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Dots runtime validation remains separate. |
+| Reading follow-up | MERGED / VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Exact-head remote checks passed; Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
-| Merge / production deploy | PR #214, #215, #217, #218, #221, #223 and #224 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
+| Merge / production deploy | PR #214, #215, #217, #218, #221, #223, #224 and #225 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
 | Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218 and Portal UI follow-up PR #221. PR #219 is a separate Web Room timestamp fix. |
@@ -204,8 +204,9 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Review [PR #225](https://github.com/wong001110/character-relay/pull/225) and its remote checks, then verify latest position, emoji
-and GIF descriptions/viewing in Dots after delivery. Continue user-owned observation of a natural incoming message and an
+Verify latest position, emoji and GIF descriptions/viewing in Dots after merged
+[PR #225](https://github.com/wong001110/character-relay/pull/225) reaches its runtime.
+Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
 room retains the Companion by design. PR #219 remains separate; no manual production deployment
@@ -645,12 +646,28 @@ This is self-reviewed source/browser evidence; no independent review or new boun
 campaign was run. Auth/delivery policy, backend, API/schema, dependencies and sizing implementation
 are unchanged. Existing scope/auth/fallback/send regressions provide the relevant protection checks.
 Dots' new reading behavior and live-message/send remain runtime gates; actual BFCache remains
-unverified. No new merge, manual deployment, production message/data change or PR #219 action.
+unverified. At this implementation checkpoint, no new merge, manual deployment, production
+message/data change or PR #219 action had occurred; the subsequently authorized merge is below.
 
-Delivery: [PR #225](https://github.com/wong001110/character-relay/pull/225) is open against main.
+Delivery: the user explicitly authorized merging, and
+[PR #225](https://github.com/wong001110/character-relay/pull/225) was squash-merged at
+**2026-10-05 17:51:13 MYT (09:51:13 UTC)** as
+**`6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`**.
 Application commit **`ea0b897d5c3952cd69572f22cf5d226ca4aa2d9b`** contains the locally verified
-implementation; the subsequent delivery receipt changes only this document. Remote CI outcomes
-belong to the current PR head and its [checks](https://github.com/wong001110/character-relay/pull/225/checks),
-separately from the local evidence above. The branch was pushed with per-command HTTP/1.1;
-the PR includes the previous documentation-only PR #224 merge closeout. No further squash merge
-or manual deployment was performed.
+implementation; exact pre-merge head **`945e96c65354fcdc783126c91f2a66abb5ab7a6c`** adds only a
+delivery-receipt edit to this document. Its remote receipts passed:
+
+- [CI 37274376872](https://github.com/wong001110/character-relay/actions/runs/37274376872):
+  Python 3.12/3.13, Web, Discord Connector, PostgreSQL foundation and Docker all successful.
+- [Railway Smoke 37274376854](https://github.com/wong001110/character-relay/actions/runs/37274376854)
+  and [Public Demo contract 37274376897](https://github.com/wong001110/character-relay/actions/runs/37274376897)
+  successful; shared deployment health was skipped by the PR condition.
+
+Root confirmed the tested head, clean worktree and GitHub MERGEABLE/CLEAN state, then used
+`--match-head-commit` without bypassing checks. GitHub reports MERGED. Fetched remote main and
+fast-forwarded local main match the squash SHA; their tree exactly matches the tested PR head.
+HTTP/1.1 fetch succeeded. The PR includes the previous documentation-only PR #224 merge closeout;
+this subsequent merge receipt is another documentation-only follow-up. No application code changed
+after verification, and no manual deployment, production message/data change or PR #219 action was
+performed. Automatic deployment success is not claimed. Dots reading/live-message/send qualification
+remains the next runtime gate.
