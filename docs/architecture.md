@@ -58,6 +58,32 @@ separate, and the observer disconnects when the surface closes or minimizes.
 The accepted MVP and browser-agent acceptance boundary are in the
 [Room Companion plan](plans/web-room-companion-2026-10-04.md).
 
+### Web Room Agent processing ownership
+
+Human read/unread remains presentation-derived. Opt-in Agent processing instead uses
+`AgentReadingRepository` and the additive `web_room_agent_reading_cursors` table,
+scoped by authenticated user, published room and owned participant profile. The existing
+`RoomSourceRecord` current-state source/room revisions drive pending changes, including
+older edits and tombstones. SQL caps source body reads; scoped counts exclude only verified
+own participant echoes. Room/profile/source locks serialize batch capture and completion;
+foreign-key cascades retire metadata with the owning account/room/profile.
+
+An active batch stores immutable source references and a server-selected cutoff, not
+message bodies. Live content is exposed only for matching captured revisions; changed
+parents or deleted sources cannot introduce a later summary or resurrect earlier text.
+Completion advances only the captured cutoff and gap generation. The shared WebRoomSession
+owns opt-in UI state, scope-bound API requests and transport health; AgentReadingPanel is
+shared by the full room and Companion, with a narrow visible HTML summary before batch
+content. Neither focus, scroll nor human unread acknowledgement completes Agent work.
+
+The single existing SSE stream exposes room source revision, heartbeat and orderly rollover
+signals. Unexpected transport/read failure or activation/reload records sticky recovery
+work, while a bounded immediate normal renewal can avoid a spurious gap. All reading copy
+is explicitly limited to collected current state. This is not a Connector/Gateway replay
+journal or a guarantee of complete upstream history or browser-tool permission stability.
+See [accepted contract](plans/web-room-agent-reading-2026-10-05.md) and
+[Agent operating/developer guide](developer/web-room-agent-reading.md).
+
 ## Actual baseline ownership and intended disposition
 
 | Boundary | Existing paths | Disposition |

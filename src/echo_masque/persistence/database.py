@@ -77,6 +77,7 @@ from echo_masque.persistence.room_models import (
 
 from echo_masque.persistence import web_room_models as _web_room_models  # noqa: F401
 from echo_masque.persistence import cli_auth_models as _cli_auth_models  # noqa: F401
+from echo_masque.persistence import agent_reading_models as _agent_reading_models  # noqa: F401
 
 _SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
 _SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
@@ -281,6 +282,12 @@ class Database:
             if session.get(DatabaseSchemaMigrationRecord, "cli-readonly-grants-v1") is None:
                 session.add(DatabaseSchemaMigrationRecord(
                     revision="cli-readonly-grants-v1", database_kind=self.engine.dialect.name,
+                ))
+                session.commit()
+        with self.session() as session:
+            if session.get(DatabaseSchemaMigrationRecord, "web-room-agent-reading-v1") is None:
+                session.add(DatabaseSchemaMigrationRecord(
+                    revision="web-room-agent-reading-v1", database_kind=self.engine.dialect.name,
                 ))
                 session.commit()
         KnowledgeFabricScopeMigration(self).run()

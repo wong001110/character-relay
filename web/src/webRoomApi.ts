@@ -14,7 +14,7 @@ export interface WebReplyPreview { message_id: string; available: boolean; in_sn
 export interface WebMessage { id: string; author_id: string; display_name: string; avatar_url: string; actor_type: string; text: string; deleted: boolean; content_available: boolean; created_at: string | null; edited_at: string | null; reply_to_message_id: string; reply_preview: WebReplyPreview | null; attachments: WebAttachment[]; custom_emojis: WebExpression[]; stickers: WebExpression[]; mentions: WebMention[]; embeds: WebEmbed[]; poll: WebPoll | null; reactions: WebReaction[]; pinned: boolean }
 export interface WebUpload { id: string; filename: string; mime_type: string; size_bytes: number; preview_url?: string }
 export interface WebOutbox { id: string; client_message_id: string; profile_id: string; display_name: string; avatar_url: string; text: string; reply_to_message_id: string; sticker_resource_key: string; attachments: WebUpload[]; status: "pending" | "claimed" | "delivered" | "failed" | "uncertain" | "cancelled"; discord_message_id: string; reason: string; created_at: string; routing_status: string }
-export interface WebSnapshot { room_id: string; messages: WebMessage[]; outbox: WebOutbox[]; history_limit: number }
+export interface WebSnapshot { room_id: string; messages: WebMessage[]; outbox: WebOutbox[]; history_limit: number; source_revision?: number }
 export interface WebSend { client_message_id: string; profile_id: string; text: string; reply_to_message_id: string; sticker_resource_key?: string; attachment_ids?: string[] }
 export interface WebReactionInput { profile_id: string; emoji_key: string; emoji_name?: string }
 export function snapshotForRoomTransition(current: WebSnapshot, roomId: string): WebSnapshot {

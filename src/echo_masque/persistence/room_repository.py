@@ -259,6 +259,12 @@ class RoomRepository:
             record = session.get(RoomSourceRecord, evidence_key(scope, message_id))
             return _stored(record) if record is not None else None
 
+    def revision(self, scope: RoomScope) -> int:
+        """Current recorded-source revision, including edits outside the recent window."""
+        with self._lock, self.database.session() as session:
+            room = session.get(RoomStateRecord, scope_key(scope))
+            return room.revision if room is not None and room.readable else 0
+
     def can_read(self, scope: RoomScope, *, max_age_seconds: int | None = None) -> bool:
         with self._lock, self.database.session() as session:
             room = session.get(RoomStateRecord, scope_key(scope))
