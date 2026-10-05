@@ -26,8 +26,8 @@ function messageTime(value: string | null): string {
 function emojiImage(id: string, animated: boolean): string {
   return `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}`;
 }
-function messageText(message: WebMessage): ReactNode[] {
-  if (!message.text) return [];
+export function webRoomMessageText(message: WebMessage, text = message.text): ReactNode[] {
+  if (!text) return [];
   const emojiById = new Map(message.custom_emojis.map(item => [item.resource_id, item]));
   const mentionByKey = new Map(
     message.mentions.map(item => [`${item.kind}:${item.target_id}`, item])
@@ -35,9 +35,9 @@ function messageText(message: WebMessage): ReactNode[] {
   const token = /<(a?):([A-Za-z0-9_]+):(\d+)>|<@!?(\d+)>|<@&(\d+)>|<#(\d+)>/gu;
   const output: ReactNode[] = [];
   let cursor = 0;
-  for (const match of message.text.matchAll(token)) {
+  for (const match of text.matchAll(token)) {
     const index = match.index ?? 0;
-    if (index > cursor) output.push(message.text.slice(cursor, index));
+    if (index > cursor) output.push(text.slice(cursor, index));
     if (match[3]) {
       const id = match[3];
       const known = emojiById.get(id);
@@ -68,7 +68,7 @@ function messageText(message: WebMessage): ReactNode[] {
     }
     cursor = index + match[0].length;
   }
-  if (cursor < message.text.length) output.push(message.text.slice(cursor));
+  if (cursor < text.length) output.push(text.slice(cursor));
   return output;
 }
 
@@ -137,7 +137,7 @@ export function WebRoomMessage({
           <p className="room-preserve-text web-room-muted">{tx("Message content unavailable", "消息内容不可用")}</p>
         ) : (
           <>
-            {message.text && <p className="room-preserve-text web-room-rich-text">{messageText(message)}</p>}
+            {message.text && <p className="room-preserve-text web-room-rich-text">{webRoomMessageText(message)}</p>}
             {!hasBody && <p className="room-preserve-text web-room-muted">{tx("This message contains content that cannot be displayed here.", "此消息包含目前无法显示的内容。")}</p>}
 
             {message.attachments.length > 0 && (

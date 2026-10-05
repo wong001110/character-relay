@@ -20,6 +20,7 @@ evidence does not establish desktop always-on-top behavior or Dots/Gemini usabil
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import socket
@@ -943,6 +944,149 @@ def native_sizing_journey(browser: Browser, client: httpx.Client, room: str) -> 
         }
 
 
+def reading_journey(browser: Browser, client: httpx.Client) -> dict[str, Any]:
+    """Exercise real SSE updates and late native PiP layout without viewport emulation."""
+    connection, room, _ = seed(client)
+    base_url = str(client.base_url).rstrip("/")
+    gif_bytes = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+    with (
+        TemporaryDirectory(prefix="reading-", dir=ROOT / "web/dist/assets") as media_directory,
+        browser.new_context(no_viewport=True) as context,
+    ):
+        media_path = Path(media_directory) / "fixture.gif"
+        media_path.write_bytes(gif_bytes)
+        gif_url = f"{base_url}/assets/{media_path.parent.name}/fixture.gif"
+        context.add_init_script(OBSERVE_STREAMS)
+        page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        login(page, base_url, room)
+        created = stream_stats(page)["created"]
+        # Disable only copied CSS to exercise layout arriving after the initial
+        # scroll effect. Restore the parent immediately after opening native PiP.
+        page.evaluate("document.querySelector('link[rel=stylesheet]').disabled = true")
+        with context.expect_page() as popup:
+            page.get_by_role("button", name="Pop out · Room Companion", exact=True).click()
+        pip = popup.value
+        pip.on("pageerror", lambda error: errors.append(str(error)))
+        root = pip.locator(".room-companion")
+        expect(root).to_be_attached()
+        page.evaluate("document.querySelector('link[rel=stylesheet]').disabled = false")
+        page.get_by_role("navigation", name="Primary navigation").get_by_role(
+            "button", name="Dashboard", exact=True
+        ).click()
+        rich = source(
+            7,
+            text="<:wave:910000000000000011> " + "Synthetic newest message. " * 70,
+            custom_emojis=[
+                {
+                    "resource_id": "910000000000000011",
+                    "name": "wave",
+                    "animated": False,
+                    "asset_url": f"{base_url}/assets/brand/character-relay-favicon.png",
+                }
+            ],
+            attachments=[
+                {
+                    "attachment_id": "synthetic-gif",
+                    "filename": "fixture.gif",
+                    "content_type": "image/gif",
+                    "url": gif_url,
+                    "description": "Synthetic transparent GIF fixture",
+                }
+            ],
+            embeds=[
+                {
+                    "embed_type": "gifv",
+                    "url": gif_url,
+                    "title": "GIF fixture",
+                    "description": "Synthetic embedded GIF description",
+                    "thumbnail_url": gif_url,
+                }
+            ],
+        )
+        observe(client, connection, [{**rich, "attachments": [], "embeds": []}])
+        expect(root).to_have_attribute("data-latest-message-id", rich["message_id"])
+        expect(root).to_have_attribute("data-unread-count", "1")
+        pip.evaluate("document.querySelector('link[rel=stylesheet]').disabled = false")
+        expect(root).to_have_css("display", "flex")
+        bottom = """() => {
+            const h = document.querySelector('.room-companion-history');
+            return h.scrollHeight > h.clientHeight && h.scrollHeight-h.clientHeight-h.scrollTop < 2;
+        }"""
+        pip.wait_for_function(bottom)
+        expect(root).to_have_attribute("data-unread-count", "1")
+        # Media arrives through a same-ID real SSE update after copied CSS.
+        observe(client, connection, [rich])
+        history = pip.locator(".room-companion-history")
+        latest = pip.locator(f'[data-message-id="{rich["message_id"]}"]')
+        expect(latest.locator(".web-room-inline-emoji")).to_have_attribute("alt", ":wave:")
+        expect(latest.locator(".room-companion-file-caption")).to_have_count(2)
+        expect(latest).to_contain_text("Synthetic transparent GIF fixture")
+        expect(latest).to_contain_text("Synthetic embedded GIF description")
+        expect(latest.get_by_role("link", name="View GIF", exact=False)).to_have_count(2)
+        pip.wait_for_function("""() => [...document.querySelectorAll('.room-companion-file img')]
+            .filter(img => img.src.endsWith('fixture.gif'))
+            .every(img => img.complete && img.naturalWidth > 0)""")
+        pip.wait_for_function(bottom)
+        expect(root).to_have_attribute("data-unread-count", "1")
+
+        # Edit the same newest ID: no latest-ID change can trigger the old effect.
+        observe(
+            client,
+            connection,
+            [
+                {
+                    **rich,
+                    "text": rich["text"] + "Same-ID expansion. " * 70,
+                    "edited_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        )
+        expect(latest).to_contain_text("Same-ID expansion.")
+        pip.wait_for_function(bottom)
+        history.hover()
+        pip.mouse.wheel(0, -20000)
+        pip.wait_for_function("document.querySelector('.room-companion-history').scrollTop < 2")
+        observe(
+            client,
+            connection,
+            [
+                {
+                    **rich,
+                    "text": rich["text"] + "While reading older. " * 100,
+                    "edited_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        )
+        expect(latest).to_contain_text("While reading older.")
+        pip.wait_for_timeout(200)
+        assert history.evaluate("node => node.scrollTop") < 2
+        expect(root).to_have_attribute("data-unread-count", "1")
+        pip.get_by_role("button", name="1 unread · View latest", exact=True).click()
+        pip.wait_for_function(bottom)
+        expect(root).to_have_attribute("data-unread-count", "0")
+        # The explicit media action opens an actual separate document.
+        with context.expect_page() as image_popup:
+            latest.get_by_role("link", name="View GIF", exact=False).first.click()
+        image_page = image_popup.value
+        expect(image_page).to_have_url(gif_url)
+        image_page.close()
+        assert_one_stream(page, created)
+        pip.get_by_role("button", name="Close Room Companion", exact=True).click()
+        assert pip.is_closed()
+        assert errors == [], errors
+        return {
+            "late_styles_open_at_latest": True,
+            "media_insert_and_same_id_edit_follow_latest": True,
+            "manual_scroll_retained": True,
+            "automatic_scroll_does_not_acknowledge_unread": True,
+            "custom_emoji_readable_name": True,
+            "gif_attachment_embed_descriptions_and_viewing": True,
+            "single_stream_and_cleanup": True,
+        }
+
+
 def persisted_lifecycle_journey(browser: Browser, client: httpx.Client, room: str) -> None:
     """Exercise production persisted-page handlers; this is not a real BFcache navigation."""
     base_url = str(client.base_url).rstrip("/")
@@ -1053,6 +1197,7 @@ def main() -> None:
                 persisted_lifecycle_journey(browser, client, room)
                 if args.verify_sizing:
                     result["native_sizing"] = native_sizing_journey(browser, client, room)
+                result["reading"] = reading_journey(browser, client)
                 result.update(
                     browser=browser.version,
                     headless=not args.headed,

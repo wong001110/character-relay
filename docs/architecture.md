@@ -31,6 +31,10 @@ Native resize observations and the isolated
 `RoomCompanionSizeControls` form never update Room draft or transport state. Closing PiP or changing
 Portal route leaves the session running; logout/revocation resets private state. Parent pagehide
 disposes the session; persisted page restoration rechecks authentication before reopening reads.
+The Companion reuses `webRoomMessageText` for custom emoji/mention presentation and exposes existing
+media descriptions/viewing links behind its content and URL guards. A child-document ResizeObserver
+tracks history viewport/content layout while at latest; user scroll and read activation remain
+separate, and the observer disconnects when the surface closes or minimizes.
 The accepted MVP and browser-agent acceptance boundary are in the
 [Room Companion plan](plans/web-room-companion-2026-10-04.md).
 
