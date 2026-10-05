@@ -353,7 +353,11 @@ async def stream(
         await asyncio.sleep(1)
 
 
-@router.get("/api/cli/rooms/{room_id}/events")
+@router.get(
+    "/api/cli/rooms/{room_id}/events",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
 async def events(
     room_id: str, request: Request, actor: Annotated[CliPrincipal, Depends(principal)]
 ) -> StreamingResponse:

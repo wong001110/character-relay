@@ -6,7 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class DeviceAuthorizationView(BaseModel):
-    device_code: str = Field(repr=False, json_schema_extra={"writeOnly": True})
+    device_code: str = Field(
+        repr=False, json_schema_extra={"format": "password", "x-sensitive": True}
+    )
     user_code: str
     verification_uri: str
     expires_in: int
@@ -14,7 +16,9 @@ class DeviceAuthorizationView(BaseModel):
 
 
 class CliTokenView(BaseModel):
-    access_token: str = Field(repr=False, json_schema_extra={"writeOnly": True})
+    access_token: str = Field(
+        repr=False, json_schema_extra={"format": "password", "x-sensitive": True}
+    )
     token_type: Literal["Bearer"]
     expires_in: int
     scope: str

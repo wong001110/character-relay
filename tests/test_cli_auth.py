@@ -701,8 +701,17 @@ def test_openapi_documents_restricted_bearer_and_bounded_credential_free_metadat
         )
     assert schemas["CliSnapshotView"]["properties"]["messages"]["maxItems"] == 64
     assert schemas["CliSnapshotView"]["properties"]["history_limit"]["const"] == 64
-    assert schemas["DeviceAuthorizationView"]["properties"]["device_code"]["writeOnly"] is True
-    assert schemas["CliTokenView"]["properties"]["access_token"]["writeOnly"] is True
+    for schema, field in [
+        ("DeviceAuthorizationView", "device_code"),
+        ("CliTokenView", "access_token"),
+    ]:
+        credential = schemas[schema]["properties"][field]
+        assert credential["x-sensitive"] is True
+        assert credential["format"] == "password"
+        assert "writeOnly" not in credential
+    assert set(
+        document["paths"]["/api/cli/rooms/{room_id}/events"]["get"]["responses"]["200"]["content"]
+    ) == {"text/event-stream"}
     assert (
         "application/x-www-form-urlencoded"
         in paths["/api/cli-auth/token"]["post"]["requestBody"]["content"]

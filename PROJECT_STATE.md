@@ -9,7 +9,7 @@ Updated: **2026-10-05**. This is the only current progress and takeover record.
 | Repository / baseline | `wong001110/character-relay` / fetched main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00` (through squash-merged PR #225) |
 | Active direction | [CLI read-only P0](docs/plans/cli-readonly-integration-2026-10-05.md), from the user-supplied Character_Relay_CLI_Integration_Handoff.txt. Companion MVP remains merged. |
 | Current instruction | User explicitly instructed P0 implementation and merge to main, superseding the handoff's draft-only gate. No manual deployment, production migration, real-account authorization/read or real message sends. Execution-platform permission issues remain separate. |
-| Development branch | `feat/cli-readonly-grants-20261005`, from the documentation closeout on main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`; independent PR #219 remains untouched. |
+| Implementation / merge receipt | [PR #226](https://github.com/wong001110/character-relay/pull/226), `feat/cli-readonly-grants-20261005`, from the documentation closeout on main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`; exact-head checks and the authorized squash receipt are in the linked PR. Independent PR #219 remains untouched. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
 | Reading follow-up | MERGED / VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Exact-head remote checks passed; Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
@@ -53,16 +53,21 @@ Verification on this implementation branch:
   This hand-authored protected-decision scope is not whole-module/repository coverage.
   Initial driver misclassified three native pytest assertion/expected-exception
   failures; classification was corrected and all 12 were rerun, not called passes.
-- Full Python suite and exact-head remote checks are pending at this checkpoint;
-  their final receipts must precede authorized merge. Direct pytest executable lacked
-  repository root import path and failed collection; `python -m pytest` corrects the
-  invocation without changing source or tests.
+- Full local `python -m pytest`: **1519 passed, 8 skipped, 6 warnings** in 360.81s
+  at implementation head `83107f9`. Final OpenAPI-only refinements use correct
+  `text/event-stream` and sensitive response fields without request-only `writeOnly`;
+  their focused schema check precedes the final remote run. Direct pytest executable
+  lacked repository root imports; module invocation corrects this without source changes.
+- PR #226 first-head PostgreSQL foundation/CAS, Web, Connector, Public Demo and Railway
+  smoke gates passed. Final-head Python/Docker/remote gates remain required before
+  readiness and the user-authorized squash merge; consult PR checks for exact receipts.
 
 Deployment/production migration and actual Dots account acceptance are **NOT RUN**.
 The handoff's referenced mock ZIP was not supplied; the independent CLI was built
 without it. Existing Companion/Dots browser permission attribution remains unchanged.
-Next action: complete remaining verification, Draft PR, mark ready after green checks,
-then user-authorized squash merge; preserve independent PR #219.
+PR #226 tracks final check/readiness/authorized squash receipts. After merge, next
+action is separately authorized operator enablement and actual Dots acceptance; keep
+independent PR #219 separate. No production operation is implied by this checkpoint.
 
 ## Baseline correction
 
@@ -250,8 +255,8 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Complete exact-head CLI P0 checks and the authorized squash merge. Production enablement
-and actual Dots read-only approval are separate future gates. Companion follow-up:
+PR #226 is the exact-head gate and authorized merge receipt. After that gate, production
+enablement and actual Dots read-only approval are separate future actions. Companion follow-up:
 verify latest position, emoji and GIF descriptions/viewing in Dots after merged
 [PR #225](https://github.com/wong001110/character-relay/pull/225) reaches its runtime.
 Continue user-owned observation of a natural incoming message and an
