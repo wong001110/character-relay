@@ -568,6 +568,8 @@ def test_snapshot_revalidates_after_room_io_before_emission(cli, monkeypatch):
         "bearer CRCLI_malformed",
         "Basic crcli_malformed",
         "Bearer  crcli_malformed",
+        "crcli_malformed trailing",
+        "Bearer unrelated crcli_malformed",
     ],
 )
 def test_malformed_authorization_syntax_cannot_reach_legacy_admin(cli, authorization):
@@ -583,6 +585,7 @@ def test_validation_responses_do_not_echo_accidentally_supplied_private_credenti
         {"client_id": CLIENT, "scopes": [token], "room_ids": [cli[4]]},
         {"client_id": CLIENT, "scopes": SCOPES, "room_ids": [cli[4]], "token": token},
         {"client_id": CLIENT, "scopes": SCOPES, "room_ids": [challenge["device_code"] + "/"]},
+        {"client_id": CLIENT, "scopes": SCOPES, "room_ids": [token]},
     ]:
         response = cli[1].post("/api/cli-auth/device-authorizations", json=payload)
         assert response.status_code in {400, 422}

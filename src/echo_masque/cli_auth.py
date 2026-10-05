@@ -17,6 +17,7 @@ from echo_masque.cli_auth_policy import (
     CLI_CLIENT_NAME,
     CLI_SCOPES,
     CLI_TOKEN_PREFIX,
+    restricted_credential,
 )
 from echo_masque.config import Settings
 from echo_masque.persistence import Database
@@ -77,6 +78,7 @@ class CliAuthService:
             or len(room_ids) > 32
             or any(
                 not room
+                or restricted_credential(room)
                 or len(room) > 64
                 or not all(c.isascii() and (c.isalnum() or c in "_-") for c in room)
                 for room in room_ids

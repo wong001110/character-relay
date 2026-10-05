@@ -32,7 +32,11 @@ from echo_masque.api.cli_auth_schemas import (
 )
 from echo_masque.auth import AuthContext
 from echo_masque.cli_auth import CliAuthError, CliAuthService, CliPrincipal, digest
-from echo_masque.cli_auth_policy import allowed_cli_route, restricted_credential
+from echo_masque.cli_auth_policy import (
+    allowed_cli_route,
+    restricted_authorization,
+    restricted_credential,
+)
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.web_rooms import WebRoomError
 
@@ -52,10 +56,9 @@ class CliCredentialBoundary(BaseHTTPMiddleware):
         self.cookie_name = cookie_name
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        parts = request.headers.get("authorization", "").split(maxsplit=1)
-        raw = parts[-1] if parts else ""
+        tagged = restricted_authorization(request.headers.get("authorization", ""))
         cookie = request.cookies.get(self.cookie_name, "")
-        if (restricted_credential(raw) or restricted_credential(cookie)) and not allowed_cli_route(
+        if (tagged or restricted_credential(cookie)) and not allowed_cli_route(
             request.method, request.url.path
         ):
             return JSONResponse(

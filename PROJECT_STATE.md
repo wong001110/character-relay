@@ -30,7 +30,7 @@ Additive tables/revision only; no existing data rewrite or destructive downgrade
 
 Verification on this implementation branch:
 
-- CLI synthetic acceptance/client: **108 passed, 1 skipped** (dedicated PostgreSQL
+- CLI synthetic acceptance/client: **113 passed, 1 skipped** (dedicated PostgreSQL
   database not configured locally); the new guarded PostgreSQL CAS/restart test is
   selected in the existing CI job. Original auth/Web Room + client regression:
   **69 passed** (35 client cases overlap the CLI suite; do not add the totals).
@@ -46,17 +46,20 @@ Verification on this implementation branch:
   Root integration found/fixed SQLite ORM datetime evaluation; updates explicitly
   synchronize by fetched database results. This is selective review, not an external
   security audit or proof of all concurrency schedules.
-- Bounded semantic mutation run: **12 executed / 12 killed / 0 surviving / 0 errors**
+- Bounded semantic mutation run: **14 executed / 14 killed / 0 surviving / 0 errors**
   in a disposable source copy. Counterexamples disable prefix detection, POST route
   allowlist, feature/client/scope gates, persisted polling penalty, account binding,
-  read scope/room enforcement, grant revocation/expiry and post-I/O revalidation.
+  read scope/room enforcement, grant revocation/expiry, post-I/O revalidation,
+  pasted-token room exclusion and argument-error secret echo.
   This hand-authored protected-decision scope is not whole-module/repository coverage.
   Initial driver misclassified three native pytest assertion/expected-exception
-  failures; classification was corrected and all 12 were rerun, not called passes.
+  failures; classification was corrected and the final 14 were rerun, not called passes.
 - Full local `python -m pytest`: **1519 passed, 8 skipped, 6 warnings** in 360.81s
   at implementation head `83107f9`. Final OpenAPI-only refinements use correct
   `text/event-stream` and sensitive response fields without request-only `writeOnly`;
-  their focused schema check precedes the final remote run. Direct pytest executable
+  their focused schema check passed. Final hardening also recognizes tagged credentials
+  anywhere in malformed whitespace-separated headers and never echoes unexpected CLI
+  arguments; final focused acceptance includes these cases before the remote run. Direct pytest executable
   lacked repository root imports; module invocation corrects this without source changes.
 - PR #226 first-head PostgreSQL foundation/CAS, Web, Connector, Public Demo and Railway
   smoke gates passed. Final-head Python/Docker/remote gates remain required before

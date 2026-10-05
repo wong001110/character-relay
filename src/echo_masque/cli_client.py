@@ -12,7 +12,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from typing import Any, TextIO
+from typing import Any, Never, TextIO
 
 import httpx
 
@@ -30,17 +30,27 @@ class ClientError(Exception):
     """Only fixed, non-secret messages may reach the console."""
 
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> Never:
+        # argparse's default error echoes unknown arguments, including pasted secrets.
+        self.exit(2, "Invalid CLI arguments. Use --help for usage.\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = SafeArgumentParser(
         prog="character-relay-cli",
         description="Approve a temporary, read-only Relay session in your browser.",
     )
     parser.add_argument(
-        "--room", action="append", required=True, metavar="ROOM_ID",
+        "--room",
+        action="append",
+        required=True,
+        metavar="ROOM_ID",
         help="Explicit Relay room ID; repeat for each requested room.",
     )
     parser.add_argument(
-        "--revoke", action="store_true",
+        "--revoke",
+        action="store_true",
         help="Revoke this grant after the identity and room smoke reads.",
     )
     return parser
@@ -80,13 +90,21 @@ def _request(
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
     request = httpx.Request(
-        method, f"{OFFICIAL_ORIGIN}{path}", headers=headers,
-        json=payload, data=form,
+        method,
+        f"{OFFICIAL_ORIGIN}{path}",
+        headers=headers,
+        json=payload,
+        data=form,
     )
     try:
-        with closing(client.send(
-            request, stream=True, follow_redirects=False, auth=None,
-        )) as response:
+        with closing(
+            client.send(
+                request,
+                stream=True,
+                follow_redirects=False,
+                auth=None,
+            )
+        ) as response:
             if 300 <= response.status_code < 400:
                 raise ClientError("The service redirected the request; access stopped.")
             if response.status_code == 204:
@@ -128,10 +146,16 @@ def run_session(
     """
     output = output if output is not None else sys.stdout
     rooms = list(dict.fromkeys(room_ids))
-    if not rooms or len(rooms) > 32 or any(not _ROOM_ID.fullmatch(room) for room in rooms):
+    if (
+        not rooms
+        or len(rooms) > 32
+        or any(not _ROOM_ID.fullmatch(room) or room.lower().startswith("crcli_") for room in rooms)
+    ):
         raise ClientError("Specify between 1 and 32 valid, explicit Relay room IDs.")
     status, authorization = _request(
-        client, "POST", "/api/cli-auth/device-authorizations",
+        client,
+        "POST",
+        "/api/cli-auth/device-authorizations",
         payload={"client_id": CLIENT_ID, "scopes": list(SCOPES), "room_ids": rooms},
     )
     _success(status)
@@ -157,9 +181,12 @@ def run_session(
             break
         try:
             status, exchange = _request(
-                client, "POST", "/api/cli-auth/token",
+                client,
+                "POST",
+                "/api/cli-auth/token",
                 form={
-                    "client_id": CLIENT_ID, "device_code": device_code,
+                    "client_id": CLIENT_ID,
+                    "device_code": device_code,
                     "grant_type": DEVICE_GRANT_TYPE,
                 },
             )
@@ -207,18 +234,23 @@ def run_session(
         raise ClientError("The service returned an unexpected room scope; access stopped.")
     for room_id in rooms:
         status, snapshot = _request(
-            client, "GET", f"/api/cli/rooms/{room_id}/messages", token=token,
+            client,
+            "GET",
+            f"/api/cli/rooms/{room_id}/messages",
+            token=token,
         )
         _success(status)
         messages = snapshot.get("messages")
         if (
-            snapshot.get("room_id") != room_id or not isinstance(messages, list)
+            snapshot.get("room_id") != room_id
+            or not isinstance(messages, list)
             or len(messages) > 64
         ):
             raise ClientError("The service returned an invalid bounded room snapshot.")
         print(
             json.dumps({"room_id": room_id, "message_count": len(messages)}),
-            file=output, flush=True,
+            file=output,
+            flush=True,
         )
     if revoke:
         status, _ = _request(client, "POST", "/api/cli-auth/revoke", token=token)
