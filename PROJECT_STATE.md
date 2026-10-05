@@ -65,7 +65,9 @@ Full Python suite was not rerun locally for this bounded retirement; remote CI r
 No external/live endpoint, real token/account, production data, Discord webhook or provider
 was used. Counters and the bounded512-ID dedupe window are memory-only; missed history,
 edit/delete processing, persistence and permission stability are explicitly not guaranteed.
-This new branch is not merged. Next gate: delivery PR checks and actual Dots acceptance;
+Delivery [PR #228](https://github.com/wong001110/character-relay/pull/228), tested application
+commit `5304b4c`, is OPEN and not merged. This receipt update is documentation-only.
+Next gate: exact-head delivery PR checks and actual Dots acceptance;
 merge and production rollout require authorization for this replacement.
 
 ## Web Room Agent reading checkpoint (2026-10-05; historical batch implementation)
