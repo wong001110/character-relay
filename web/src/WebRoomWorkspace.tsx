@@ -4,6 +4,7 @@ import { deploymentApi, type DiscordServerCatalog } from "./deploymentApi";
 import { useI18n } from "./i18n";
 import { WebRoomExpressionPicker } from "./WebRoomExpressionPicker";
 import { WebRoomMessage } from "./WebRoomMessage";
+import { AgentReadingPanel } from "./AgentReadingPanel";
 import {
   WEB_ROOM_ATTACHMENT_ACCEPT,
   unmatchedOutbox,
@@ -373,6 +374,7 @@ export function WebRoomWorkspace({ demoMode = false }: { demoMode?: boolean }) {
               "显示最近 64 条消息；重连时保留当前内容，收到新状态后原位更新。"
             )}</p>
 
+          <AgentReadingPanel state={state} session={session} tx={tx} />
           <div
             ref={messagesNode}
             className="web-room-messages"

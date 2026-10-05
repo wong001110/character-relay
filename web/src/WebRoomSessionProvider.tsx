@@ -6,8 +6,17 @@ export function WebRoomSessionProvider({children}: {children: ReactNode}) {
   const [session] = useState(() => new WebRoomSession());
   useEffect(() => {
     const cleanup = () => session.suspend();
+    const updateOnline = () => session.setOnline(navigator.onLine !== false);
+    updateOnline();
     window.addEventListener("pagehide", cleanup);
-    return () => { window.removeEventListener("pagehide", cleanup); session.dispose(); };
+    window.addEventListener("offline", updateOnline);
+    window.addEventListener("online", updateOnline);
+    return () => {
+      window.removeEventListener("pagehide", cleanup);
+      window.removeEventListener("offline", updateOnline);
+      window.removeEventListener("online", updateOnline);
+      session.dispose();
+    };
   }, [session]);
   return <Context.Provider value={session}>{children}</Context.Provider>;
 }

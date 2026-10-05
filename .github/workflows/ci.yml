@@ -106,6 +106,7 @@ jobs:
           tests/test_knowledge_fabric_phase5.py::test_postgresql_fts_and_dense_channels_when_explicit_test_database_is_available
           tests/test_capability_quota_closeout.py::test_postgresql_quota_and_owner_admission_on_disposable_database
           tests/test_cli_auth_postgres.py::test_postgresql_cli_grants_durable_polling_and_atomic_redemption
+          tests/test_agent_reading_postgres.py::test_postgresql_agent_batches_are_durable_and_fixed_across_workers
 
   web:
     runs-on: ubuntu-latest

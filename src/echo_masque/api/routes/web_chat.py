@@ -17,9 +17,18 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.responses import Response, StreamingResponse
 
+from echo_masque.agent_reading import (
+    AgentReadingComplete,
+    AgentReadingGap,
+    AgentReadingStart,
+    AgentReadingStatus,
+)
 from echo_masque.api.dependencies import AuthContextDependency, CurrentUserDependency
 from echo_masque.api.routes.connectors import _authorize_connector
+from echo_masque.persistence.agent_reading_repository import AgentReadingRepository
 from echo_masque.persistence.web_room_repository import WebRoomRepository
+from echo_masque.web_room_message import message_summary as _message_summary
+from echo_masque.web_room_message import web_message_view
 from echo_masque.web_rooms import (
     MembershipInput,
     ProfileInput,
@@ -252,19 +261,6 @@ def revoke_member(
     _repo(request).member(room_id, user.id, user_id, None)
 
 
-def _message_summary(message: object) -> str:
-    text = str(getattr(message, "text", "") or "").strip().replace("\n", " ")
-    if text:
-        return text[:180] + ("…" if len(text) > 180 else "")
-    if getattr(message, "stickers", ()):
-        return "[Sticker]"
-    if getattr(message, "attachments", ()):
-        return "[Attachment]"
-    if getattr(message, "custom_emojis", ()):
-        return "[Emoji]"
-    return "[No text content]"
-
-
 def _snapshot(
     repo: WebRoomRepository, room_id: str, user_id: str, *, include_outbox: bool = True
 ) -> dict[str, object]:
@@ -343,38 +339,17 @@ def _snapshot(
             )
 
         messages.append(
-            {
-                "id": message.message_id,
-                "author_id": message.author_id,
-                "display_name": message.author_display_name,
-                "avatar_url": message.author_avatar_url,
-                "actor_type": "web_participant"
-                if message.author_external_id
-                else "character"
-                if message.author_deployment_id
-                else "bot"
-                if message.author_is_bot
-                else "discord_user",
-                "text": message.text,
-                "deleted": message.deleted,
-                "content_available": message.content_available,
-                "created_at": message.created_at.isoformat() if message.created_at else None,
-                "edited_at": message.edited_at.isoformat() if message.edited_at else None,
-                "reply_to_message_id": reply_id,
-                "reply_preview": reply_preview,
-                "attachments": [entry.model_dump(mode="json") for entry in message.attachments],
-                "custom_emojis": [entry.model_dump(mode="json") for entry in message.custom_emojis],
-                "stickers": [entry.model_dump(mode="json") for entry in message.stickers],
-                "mentions": [entry.model_dump(mode="json") for entry in message.mentions],
-                "embeds": [entry.model_dump(mode="json") for entry in message.embeds],
-                "poll": message.poll.model_dump(mode="json") if message.poll is not None else None,
-                "reactions": list(reactions.values()),
-                "pinned": message.pinned,
-            }
+            web_message_view(
+                message,
+                reply_id=reply_id,
+                reply_preview=reply_preview,
+                reactions=list(reactions.values()),
+            )
         )
     result: dict[str, object] = {
         "room_id": room.id,
         "history_limit": 64,
+        "source_revision": repo.sources.revision(room_scope(room)),
         "messages": messages,
     }
     if include_outbox:
@@ -387,6 +362,95 @@ async def messages(
     room_id: str, request: Request, user: CurrentUserDependency
 ) -> dict[str, object]:
     return await asyncio.to_thread(_snapshot, _repo(request), room_id, user.id)
+
+
+def agent_reading_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.get(
+    "/rooms/{room_id}/agent-reading/{profile_id}",
+    response_model=AgentReadingStatus,
+    dependencies=[Depends(agent_reading_no_store)],
+)
+def agent_reading_status(
+    room_id: str,
+    profile_id: str,
+    request: Request,
+    context: AuthContextDependency,
+) -> AgentReadingStatus:
+    assert context.session_id is not None  # real_session dependency
+    return AgentReadingRepository(_repo(request)).status(
+        room_id,
+        context.user.id,
+        profile_id,
+        session_id=context.session_id,
+    )
+
+
+@router.post(
+    "/rooms/{room_id}/agent-reading/{profile_id}/gap",
+    response_model=AgentReadingStatus,
+    dependencies=[Depends(agent_reading_no_store)],
+)
+def agent_reading_gap(
+    room_id: str,
+    profile_id: str,
+    payload: AgentReadingGap,
+    request: Request,
+    context: AuthContextDependency,
+) -> AgentReadingStatus:
+    assert context.session_id is not None
+    return AgentReadingRepository(_repo(request)).gap(
+        room_id,
+        context.user.id,
+        profile_id,
+        session_id=context.session_id,
+        event_id=payload.event_id,
+    )
+
+
+@router.post(
+    "/rooms/{room_id}/agent-reading/{profile_id}/batch",
+    response_model=AgentReadingStatus,
+    dependencies=[Depends(agent_reading_no_store)],
+)
+def agent_reading_batch(
+    room_id: str,
+    profile_id: str,
+    payload: AgentReadingStart,
+    request: Request,
+    context: AuthContextDependency,
+) -> AgentReadingStatus:
+    assert context.session_id is not None
+    return AgentReadingRepository(_repo(request)).batch(
+        room_id,
+        context.user.id,
+        profile_id,
+        session_id=context.session_id,
+    )
+
+
+@router.post(
+    "/rooms/{room_id}/agent-reading/{profile_id}/complete",
+    response_model=AgentReadingStatus,
+    dependencies=[Depends(agent_reading_no_store)],
+)
+def agent_reading_complete(
+    room_id: str,
+    profile_id: str,
+    payload: AgentReadingComplete,
+    request: Request,
+    context: AuthContextDependency,
+) -> AgentReadingStatus:
+    assert context.session_id is not None
+    return AgentReadingRepository(_repo(request)).complete(
+        room_id,
+        context.user.id,
+        profile_id,
+        session_id=context.session_id,
+        batch_id=payload.batch_id,
+    )
 
 
 @router.put("/rooms/{room_id}/messages/{message_id}/reactions", status_code=204)
@@ -487,8 +551,11 @@ async def events(
                     yield f"id: {digest}\nevent: snapshot\ndata: {data}\n\n"
                     previous = digest
                 else:
-                    yield ": keepalive\n\n"
+                    yield "event: heartbeat\ndata: {}\n\n"
                 await asyncio.sleep(1)
+            else:
+                if not await request.is_disconnected():
+                    yield "event: rollover\ndata: {}\n\n"
         finally:
             leases.pop(lease_id, None)
 

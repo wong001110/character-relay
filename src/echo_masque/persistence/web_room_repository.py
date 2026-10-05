@@ -13,6 +13,7 @@ from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from echo_masque.persistence.agent_reading_models import AgentReadingCursorRecord
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     DiscordServerCatalogRecord,
@@ -725,6 +726,7 @@ class WebRoomRepository:
                     ("web_room_reactions", WebReactionRecord),
                     ("web_room_outbox", WebOutboxRecord),
                     ("web_room_members", WebRoomMemberRecord),
+                    ("web_room_agent_reading_cursors", AgentReadingCursorRecord),
                 ):
                     result = session.execute(delete(model).where(model.room_id.in_(owned_room_ids)))
                     counts[key] = int(getattr(result, "rowcount", 0) or 0)
@@ -737,6 +739,10 @@ class WebRoomRepository:
                 ("web_outbox_by_user", WebOutboxRecord, WebOutboxRecord.owner_id),
                 ("web_room_memberships", WebRoomMemberRecord, WebRoomMemberRecord.user_id),
                 ("web_profiles", WebProfileRecord, WebProfileRecord.owner_id),
+                (
+                    "agent_reading_by_user", AgentReadingCursorRecord,
+                    AgentReadingCursorRecord.user_id,
+                ),
             )
             for key, model, column in user_deletions:
                 result = session.execute(delete(model).where(column == owner_id))
