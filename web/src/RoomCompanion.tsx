@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { RoomCompanionSizeControls, type RoomCompanionSizeOptions } from "./RoomCompanionSizeControls";
+import { webRoomMessageText } from "./WebRoomMessage";
 import { unmatchedOutbox, webRoomCanSubmit, type WebMessage } from "./webRoomApi";
 import type { WebRoomSession, WebRoomSessionState } from "./webRoomSession";
 import "./room-companion.css";
@@ -36,6 +37,32 @@ function messageTime(value: string | null): string {
     ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 }
 
+function CompactMedia({ src, href, label, description, kind, tx }: {
+  src: string;
+  href: string;
+  label: string;
+  description: string;
+  kind: "gif" | "image" | "file";
+  tx: Translate;
+}) {
+  const image = kind !== "file";
+  const content = <>
+    {image && src && <img src={src} alt={description || label} loading="lazy" referrerPolicy="no-referrer" />}
+    <span className="room-companion-file-caption">
+      <span>{kind === "gif" ? "GIF · " : ""}{label}</span>
+      {description && <span>{description}</span>}
+      {image && !description && <small>{tx("No description provided", "未提供内容描述")}</small>}
+      {image && href && <strong>
+        {kind === "gif" ? tx("View GIF", "放大查看 GIF") : tx("View image", "放大查看图片")}
+        {tx(" · opens a new tab", " · 在新标签页打开")}
+      </strong>}
+    </span>
+  </>;
+  return href
+    ? <a className="room-companion-file" href={href} target="_blank" rel="noreferrer">{content}</a>
+    : <div className="room-companion-file">{content}</div>;
+}
+
 function CompactMessage({ message, onReply, disabled, tx }: {
   message: WebMessage;
   onReply: (id: string) => void;
@@ -44,6 +71,7 @@ function CompactMessage({ message, onReply, disabled, tx }: {
 }) {
   const reply = message.reply_preview;
   const text = companionMessageText(message);
+  const safeEmojis = message.custom_emojis.map(emoji => ({ ...emoji, asset_url: mediaUrl(emoji.asset_url) }));
   const hasContent = Boolean(text || message.attachments.length || message.stickers.length || message.embeds.length || message.poll);
   return (
     <article
@@ -72,21 +100,26 @@ function CompactMessage({ message, onReply, disabled, tx }: {
         <p className="room-companion-muted">{tx("Message content unavailable", "消息内容不可用")}</p>
       ) : (
         <>
-          {text && <p>{text}</p>}
+          {text && <p>{webRoomMessageText({ ...message, custom_emojis: safeEmojis }, text)}</p>}
           {!hasContent && <p className="room-companion-muted">{tx("Content cannot be displayed here.", "此内容无法在这里显示。")}</p>}
           {message.attachments.map(attachment => {
             const src = mediaUrl(attachment.proxy_url || attachment.url);
             const href = mediaUrl(attachment.url);
             const image = attachment.content_type.toLowerCase().startsWith("image/") || /\.(?:png|jpe?g|webp|gif|avif)$/iu.test(attachment.filename);
-            const content = <>{image && src && <img src={src} alt={attachment.description || attachment.filename} loading="lazy" referrerPolicy="no-referrer" />}<span>📎 {attachment.filename}</span></>;
-            return href ? (
-              <a className="room-companion-file" href={href} target="_blank" rel="noreferrer" key={attachment.attachment_id}>{content}</a>
-            ) : (
-              <div className="room-companion-file" key={attachment.attachment_id}>{content}</div>
-            );
+            const gif = attachment.content_type.toLowerCase() === "image/gif" || /\.gif$/iu.test(attachment.filename);
+            return <CompactMedia key={attachment.attachment_id} src={src} href={href}
+              label={attachment.filename} description={attachment.description}
+              kind={gif ? "gif" : image ? "image" : "file"} tx={tx} />;
           })}
           {message.stickers.map(sticker => <small className="room-companion-content-note" key={sticker.resource_key || sticker.resource_id}>🏷️ {tx("Sticker", "贴图")}: {sticker.name}</small>)}
-          {message.embeds.map((embed, index) => <small className="room-companion-content-note" key={index}>{tx("Embed", "嵌入内容")}: {embed.title || embed.description || embed.provider_name || tx("Open full room to view", "打开完整房间查看")}</small>)}
+          {message.embeds.map((embed, index) => {
+            const src = mediaUrl(embed.image_proxy_url || embed.thumbnail_proxy_url || embed.image_url || embed.thumbnail_url);
+            const href = mediaUrl(embed.url) || src;
+            const gif = embed.embed_type === "gifv" || /\.gif(?:\?|$)/iu.test(src);
+            const label = embed.title || embed.provider_name || tx("Embed", "嵌入内容");
+            return <CompactMedia key={index} src={src} href={href} label={label}
+              description={embed.description} kind={gif ? "gif" : src ? "image" : "file"} tx={tx} />;
+          })}
           {message.poll && <small className="room-companion-content-note">{tx("Poll", "投票")}: {message.poll.question}</small>}
         </>
       )}
@@ -109,6 +142,7 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip, sizeCo
   const readerId = `companion:${id}`;
   const root = useRef<HTMLElement>(null);
   const history = useRef<HTMLDivElement>(null);
+  const historyContent = useRef<HTMLDivElement>(null);
   const activated = useRef(false);
   const atLatest = useRef(true);
   const syncReader = useRef<() => void>(() => {});
@@ -199,6 +233,23 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip, sizeCo
     if (history.current && atLatest.current) history.current.scrollTop = history.current.scrollHeight;
   }, [latestId, minimized]);
 
+  useEffect(() => {
+    const node = history.current;
+    const content = historyContent.current;
+    const view = node?.ownerDocument.defaultView;
+    if (!node || !content || !view) return;
+    const followLatest = () => {
+      if (atLatest.current) node.scrollTop = node.scrollHeight;
+    };
+    // PiP's copied CSS and media may load after the initial React effect. Observe
+    // both the viewport and its content, while respecting a reader scrolling up.
+    const observer = new view.ResizeObserver(followLatest);
+    observer.observe(node);
+    observer.observe(content);
+    followLatest();
+    return () => observer.disconnect();
+  }, [pip, minimized]);
+
   const activate = (target: EventTarget) => {
     const element = target as Element;
     if (minimizedRef.current || element.closest?.("[data-companion-reader-ignore]")) return;
@@ -284,6 +335,7 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip, sizeCo
           atLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
           syncReader.current();
         }}>
+          <div ref={historyContent} className="room-companion-history-content">
           {!messages.length && <p className="room-companion-empty">{room ? tx("No recent messages.", "暂无最近消息。") : tx("Open full room to select an accessible room.", "打开完整房间，选择有权访问的房间。")}</p>}
           {messages.map(message => <CompactMessage key={message.id} message={message} disabled={sendingDisabled} onReply={id => session.patch({ reply: id })} tx={tx} />)}
           {visibleReceipts.map(item => <article className={`room-companion-receipt is-${item.status}`} key={item.id} data-outbox-id={item.id} data-client-message-id={item.client_message_id} data-delivery-status={item.status} data-reply-to-message-id={item.reply_to_message_id}>
@@ -305,6 +357,7 @@ export function RoomCompanion({ state, session, onClose, onOpenFull, pip, sizeCo
               <button type="button" disabled={!state.authenticated || state.busy || state.demoMode || !room?.enabled || !room.can_post || !webRoomCanSubmit(state.connection)} onClick={() => void session.retry()}>{tx("Check / retry safely", "安全核对／重试")}</button>
             </>}
           </article>}
+          </div>
         </div>
         <form className="room-companion-composer" onSubmit={event => {
           event.preventDefault();

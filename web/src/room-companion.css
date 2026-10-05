@@ -49,6 +49,8 @@
 .room-companion-reply-context > span { color: var(--companion-muted); }
 .room-companion-file { display: flex; align-items: center; gap: .45rem; color: inherit; font-size: .78rem; padding: .3rem 0; text-decoration: underline; overflow-wrap: anywhere; }
 .room-companion-file img { flex: 0 0 auto; width: 4rem; height: 3.5rem; object-fit: contain; border-radius: .3rem; background: #8c77ac12; }
+.room-companion-file-caption { display: grid; gap: .15rem; min-width: 0; }
+.room-companion-message .web-room-inline-emoji { width: 1.4em; height: 1.4em; object-fit: contain; vertical-align: -.25em; }
 .room-companion-content-note { display: block; margin-top: .2rem; overflow-wrap: anywhere; }
 .room-companion .room-companion-reply-action { min-height: 1.7rem; padding: .1rem .4rem; margin-top: .2rem; }
 .room-companion-receipt { margin-top: .35rem; border-left: 3px solid #9c772b; padding-left: .5rem; background: #8c77ac0a; }

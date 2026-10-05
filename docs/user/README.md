@@ -21,6 +21,12 @@ Gemini or other work; navigating the parent tab to another website closes PiP. *
 returns to the current room for attachments, stickers, reactions and management, keeping the
 Companion open.
 
+The Companion opens at the latest messages and follows layout changes while you remain there.
+Scroll up to read older messages without being pulled back; **View latest** returns to the end.
+Discord custom emoji show an image with a readable emoji name. Image/GIF attachments and embeds
+show any supplied description as text, plus **View image / View GIF** to open the source in a
+new tab. Missing descriptions are labelled; the Companion does not infer GIF content from a filename.
+
 The default small window requests a **380×480 content area**. If browser settings open it at a
 different size, click **Use 380×480** in the Companion to apply the default. Chromium requires a
 click inside PiP to resize it, so a browser override may prevent automatic sizing on first open.
@@ -43,8 +49,9 @@ surface acknowledges the same unread count. Opening or minimizing the companion 
 Pending and uncertain delivery remain visible; an unknown submission can only be checked/retried
 explicitly with its original message ID. A draft containing files or a sticker must be sent from
 the full room. Dots has reported successful desktop visibility, controls and draft synchronization;
-real incoming messages, sending and this sizing follow-up still require its actual cloud-computer
-validation.
+close/reopen draft retention also passed in its cloud browser. Browser-controlled reopening still
+requires the in-window **Use W×H** click when dimensions differ. Real incoming messages, sending
+and this reading follow-up still require its actual cloud-computer validation.
 
 ### Discord and diagnostics
 

@@ -85,3 +85,22 @@ observed oversized window without assuming its cause or changing the browser env
 - Prove default-size request/explicit application, custom, manual close/reopen and reset with the real isolated API and native headed
   Chromium on a 1364×1024 Xfwm4 desktop, including the reproducible launch override. Verify validation,
   native resize denial/clamping, single SSE, shared draft and the existing functional journey.
+
+## Reading follow-up from Dots feedback (2026-10-05)
+
+Continue the requested repair with a narrow frontend follow-up to Dots' runtime report:
+- Open at the latest messages even when PiP styles or media load late. Follow layout/content
+  changes while at latest; preserve deliberate scrolling into earlier messages. Opening and
+  automatic scrolling alone must not acknowledge unread messages.
+- Reuse full-room custom emoji/mention presentation in the Companion, including readable emoji
+  names, without a new picker or transport. Preserve structured-reply prefix suppression.
+- Show existing attachment/embed descriptions as readable text and an explicit image/GIF viewing
+  link. Label missing descriptions honestly; no generated semantic description, new media fetch
+  service or API/schema change. Preserve safe URL filtering and deleted/unavailable content guards.
+- Keep the genuine child-click sizing workaround. Dots launch attribution and previous permission
+  errors remain unconfirmed; do not claim automatic small reopening under browser overrides.
+
+Use an isolated real-API/native PiP browser journey for delayed styles/media, user scroll retention,
+emoji and media affordances, alongside frontend checks. Dots live incoming-message/send acceptance
+remains separate. This follow-up does not extend the completed PR #224 merge authorization to a
+new merge or manual deployment.

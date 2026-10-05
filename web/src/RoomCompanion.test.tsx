@@ -114,12 +114,19 @@ describe("Room Companion presentation contracts", () => {
     ["deleted", { deleted: true }, "Message deleted"],
     ["unavailable", { content_available: false }, "Message content unavailable"]
   ] satisfies [string, Partial<WebMessage>, string][])("withholds %s body and attachments", (_name, flags, label) => {
-    const hidden = message({ ...flags, text: "PRIVATE BODY", attachments: [{ attachment_id: "a", url: "https://example.com/private.png", proxy_url: "", filename: "PRIVATE FILE.png", description: "PRIVATE DESCRIPTION", content_type: "image/png", size_bytes: 1, width: 1, height: 1 }] });
+    const hidden = message({
+      ...flags, text: "PRIVATE BODY",
+      attachments: [{ attachment_id: "a", url: "https://example.com/private.png", proxy_url: "", filename: "PRIVATE FILE.png", description: "PRIVATE DESCRIPTION", content_type: "image/png", size_bytes: 1, width: 1, height: 1 }],
+      embeds: [{ embed_type: "gifv", url: "https://example.com/private.gif", title: "PRIVATE EMBED", description: "PRIVATE MEDIA DESCRIPTION", provider_name: "", author_name: "", image_url: "https://example.com/private.gif", image_proxy_url: "", thumbnail_url: "", thumbnail_proxy_url: "" }]
+    });
     const markup = render(state({ snapshot: { room_id: "room-1", history_limit: 64, messages: [hidden], outbox: [] } }));
     expect(markup).toContain(label);
     expect(markup).not.toContain("PRIVATE BODY");
     expect(markup).not.toContain("PRIVATE FILE");
     expect(markup).not.toContain("private.png");
+    expect(markup).not.toContain("PRIVATE EMBED");
+    expect(markup).not.toContain("PRIVATE MEDIA DESCRIPTION");
+    expect(markup).not.toContain("private.gif");
     expect(markup).not.toContain('class="room-companion-reply-action"');
   });
 
@@ -153,6 +160,49 @@ describe("Room Companion presentation contracts", () => {
     expect(markup).toContain("Check / retry safely");
     expect(markup).toContain("It will not be resent automatically");
     expect(submitButton(markup)).toMatch(/\sdisabled=""/u);
+  });
+
+  it("renders custom emoji and mentions like the full room, with readable names and safe assets", () => {
+    const rich = message({
+      text: "Hi <@42> <:wave:11> <a:dance:22> <script>bad</script>",
+      mentions: [{ kind: "user", target_id: "42", label: "Alice" }],
+      custom_emojis: [{ resource_key: "emoji:11", resource_type: "emoji", resource_id: "11", name: "hello", animated: false, asset_url: "javascript:bad()", format_type: "", description: "" }]
+    });
+    const markup = render(state({ snapshot: { room_id: "room-1", history_limit: 64, messages: [rich], outbox: [] } }));
+    expect(markup).toContain('src="https://cdn.discordapp.com/emojis/11.png"');
+    expect(markup).toContain('alt=":hello:"');
+    expect(markup).toContain('src="https://cdn.discordapp.com/emojis/22.gif"');
+    expect(markup).toContain('alt=":dance:"');
+    expect(markup).toContain("@Alice");
+    expect(markup).not.toContain("javascript:");
+    expect(markup).not.toContain("&lt;:wave:11&gt;");
+    expect(markup).toContain("&lt;script&gt;bad&lt;/script&gt;");
+  });
+
+  it("exposes GIF descriptions and explicit viewing links for attachments and embeds", () => {
+    const media = message({
+      attachments: [{ attachment_id: "gif", url: "https://cdn.example/reaction.gif", proxy_url: "", filename: "reaction.gif", description: "A synthetic waving character", content_type: "image/gif", size_bytes: 10, width: 20, height: 20 }],
+      embeds: [{ embed_type: "gifv", url: "https://example.com/gif", title: "Reaction", description: "A synthetic celebration", provider_name: "", author_name: "", image_url: "https://cdn.example/preview.png", image_proxy_url: "", thumbnail_url: "", thumbnail_proxy_url: "" }]
+    });
+    const markup = render(state({ snapshot: { room_id: "room-1", history_limit: 64, messages: [media], outbox: [] } }));
+    expect(markup).toContain("GIF · reaction.gif");
+    expect(markup).toContain("<span>A synthetic waving character</span>");
+    expect(markup).toContain("<span>A synthetic celebration</span>");
+    expect(markup.match(/View GIF · opens a new tab/gu)).toHaveLength(2);
+    expect(markup).toContain('href="https://example.com/gif" target="_blank" rel="noreferrer"');
+    expect(markup).not.toContain("No description provided");
+  });
+
+  it("labels missing descriptions honestly and rejects unsafe embed media and links", () => {
+    const embed = { embed_type: "gifv", url: "javascript:bad()", title: "Safe title", description: "", provider_name: "", author_name: "", image_url: "javascript:bad()", image_proxy_url: "", thumbnail_url: "", thumbnail_proxy_url: "" };
+    const media = message({
+      attachments: [{ attachment_id: "gif", url: "https://cdn.example/reaction.gif", proxy_url: "", filename: "reaction.gif", description: "", content_type: "image/gif", size_bytes: 1, width: 1, height: 1 }],
+      embeds: [embed]
+    });
+    const markup = render(state({ snapshot: { room_id: "room-1", history_limit: 64, messages: [media], outbox: [] } }));
+    expect(markup).toContain("No description provided");
+    expect(markup).toContain("Safe title");
+    expect(markup).not.toContain("javascript:");
   });
 
   it("suppresses echoed delivery receipts and prioritizes unresolved receipts in the bound", () => {

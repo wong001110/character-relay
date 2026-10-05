@@ -1,6 +1,6 @@
 # Project state
 
-Updated: **2026-10-04**. This is the only current progress and takeover record.
+Updated: **2026-10-05**. This is the only current progress and takeover record.
 
 ## Current scope and authority
 
@@ -8,9 +8,10 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 | --- | --- |
 | Repository / baseline | `wong001110/character-relay` / fetched main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649` (through squash-merged PR #224) |
 | Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | User explicitly authorized squash merge of the sizing repair/default-small/custom controls; PR #224 is merged. Dots actual root cause remains unconfirmed; preserve Open full room behavior, the unverified live-message/send gates and independent PR #219. No manual deploy. |
-| Development branch | PR #224 feature branch is merged; documentation-only receipt branch `docs/room-companion-resize-merge-20261004` starts from main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
+| Current instruction | Continue the requested Companion repair with Dots feedback: latest-position layout, custom emoji and readable GIF descriptions/viewing. PR #224 is merged; no further merge/manual deploy. Dots launch attribution and earlier permission-error cause remain unconfirmed; preserve Open full room behavior, live-message/send gates and independent PR #219. |
+| Development branch | `fix/room-companion-reading-20261005`, from the documentation closeout of main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
+| Reading follow-up | IMPLEMENTED / LOCAL VERIFIED: layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
 | Merge / production deploy | PR #214, #215, #217, #218, #221, #223 and #224 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
@@ -203,9 +204,8 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Verify default, custom and reopen behavior in Dots after the merged
-[sizing PR #224](https://github.com/wong001110/character-relay/pull/224) reaches its runtime.
-Continue user-owned observation of a natural incoming message and an
+Review the focused reading follow-up and its remote checks, then verify latest position, emoji
+and GIF descriptions/viewing in Dots after delivery. Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
 room retains the Companion by design. PR #219 remains separate; no manual production deployment
@@ -597,3 +597,52 @@ tree exactly matches the tested PR head. HTTP/1.1 fetch succeeded. This receipt 
 documentation-only follow-up; no application code changed after verification. No manual production
 deployment or unrelated PR #219 action was performed, and automatic deployment success is not
 claimed. Dots sizing/live-message/send qualification remains the next runtime gate.
+
+## Dots reading feedback and repair (2026-10-05)
+
+Dots reports that the Companion stays visible while visiting other websites, shares the full-room
+draft and retains the draft across close/reopen. The synthetic draft was cleared without sending
+to the group. Reopening with a selected 380×480 size still initially opens large and needs the
+child's Use-size click. This matches the qualified Chromium limitation, but actual Dots launch
+arguments/root cause remain unconfirmed. No permission error occurred in this run; that does
+not establish the earlier error's cause. Dots has not yet qualified live incoming updates or
+Companion delivery during a suitable real conversation.
+
+The reported older opening position has a reproducible layout path: on pristine main
+`b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`, enable copied PiP CSS after mounting a long newest
+message. The native history remains at scrollTop 0 with **723px** below it. The latest message ID
+does not change when styles load, so the old effect does not run again. The repaired build reaches
+the bottom (**0px remaining**) without marking the window as an active reader. This demonstrates
+a cause the repair covers; it does not prove which layout event occurred in Dots.
+
+The Companion now observes its child-document history viewport/content with ResizeObserver,
+following layout and same-ID content changes only while at latest. The observer disconnects on
+minimize/close; a reader scrolling up retains that position. It reuses full-room emoji/mention
+rendering with readable emoji names and filtered Companion asset URLs, preserving structured-reply
+prefix removal. Existing attachment/embed descriptions appear in visible text, with explicit
+View image/View GIF links to separate documents. Missing descriptions are labelled honestly;
+no generated semantic descriptions or media-analysis service was added.
+
+Frontend tests: **178 passed**; `npm run build` (including TypeScript) and
+`npm run build:mock -- --outDir /tmp/character-relay-reading-mock` passed. Runner Ruff check/format,
+py_compile and `git diff --check` passed. The real isolated API/native PiP reading journey passed
+delayed CSS, same-ID media insertion/edit following, actual wheel-scroll retention, unread
+preservation, readable emoji names, supplied GIF attachment/embed descriptions, real GIF viewing
+in a new document, one SSE and cleanup. Reproducible entry remains
+`scripts/verify_room_companion.py --chromium /usr/bin/chromium`; the reading journey is now included.
+
+Final headed **Chromium 151.0.7922.173 / Xfwm4 / 1364×1024** full acceptance also passed the
+reading journey, existing receipt/idempotency/shared-draft/unread/route/auth/fallback/persisted-handler
+checks and native sizing (including no-gesture denial, 320×320 composer reachability and
+close/reopen restoration). Command: `.venv/bin/python /tmp/character-relay-reading-browser/run.py
+--ordinary-only`; native application entry is `scripts/verify_room_companion.py --chromium
+/usr/bin/chromium --headed --verify-sizing`. Receipt:
+`/tmp/character-relay-reading-browser/ordinary_launch.json`. Private browser/API/desktop resources
+and synthetic GIF assets were cleaned. The launch override was qualified in PR #224; this
+frontend reading change did not repeat that launch mode or alter sizing implementation.
+
+This is self-reviewed source/browser evidence; no independent review or new bounded mutation
+campaign was run. Auth/delivery policy, backend, API/schema, dependencies and sizing implementation
+are unchanged. Existing scope/auth/fallback/send regressions provide the relevant protection checks.
+Dots' new reading behavior and live-message/send remain runtime gates; actual BFCache remains
+unverified. No new merge, manual deployment, production message/data change or PR #219 action.
