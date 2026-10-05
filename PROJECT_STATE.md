@@ -9,7 +9,7 @@ Updated: **2026-10-05**. This is the only current progress and takeover record.
 | Repository / baseline | `wong001110/character-relay` / fetched main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00` (through squash-merged PR #225) |
 | Active direction | [Web Room Agent reading](docs/plans/web-room-agent-reading-2026-10-05.md): lightweight rendered HTML status, fixed reading batches, explicit processing completion and durable room/participant progress. CLI P0 and Companion remain merged. |
 | Current instruction | User requested the Dots low-frequency check/read/decide/wait workflow and supplied four accepted batch/version/identity/gap refinements. Implement this first version and prepare reviewable delivery; no new merge or manual production operation. Browser-tool permission stability is not guaranteed. |
-| Implementation / merge receipt | Agent reading branch `feat/web-room-agent-reading`, baseline main `2275ef1b4e2c8547e2397e2df933d9cf58960e72` (CLI [PR #226](https://github.com/wong001110/character-relay/pull/226) merged). Implementation `a0113fa2cc2af668f45a4f7ab98cacee805e03fb`; current delivery/check receipt below. Independent PR #219 remains untouched. |
+| Implementation / merge receipt | Agent reading branch `feat/web-room-agent-reading`, baseline main `2275ef1b4e2c8547e2397e2df933d9cf58960e72` (CLI [PR #226](https://github.com/wong001110/character-relay/pull/226) merged). Implementation `a0113fa2cc2af668f45a4f7ab98cacee805e03fb`; [delivery PR #227](https://github.com/wong001110/character-relay/pull/227) and check receipt below. Independent PR #219 remains untouched. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
 | Reading follow-up | MERGED / VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Exact-head remote checks passed; Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
@@ -36,7 +36,8 @@ Verification (synthetic/offline):
 - New real API/database suite: **20 passed**; existing Web Room **30 passed**.
   Full `.venv/bin/python -m pytest`: **1544 passed, 9 skipped, 6 warnings** in414.26s.
   No disposable PostgreSQL configured locally; dedicated new cross-worker durability/
-  fixed-cutoff/gap test is selected in PostgreSQL CI and remains a remote gate.
+  fixed-cutoff/gap test is selected in PostgreSQL CI. Its job passed at source/ledger
+  head `b3c97e9b7a553e165056995efb90d6b8de47ac9d`: [PostgreSQL receipt](https://github.com/wong001110/character-relay/actions/runs/37324622074/job/111812065992).
 - Portal: **232 tests /28 files passed**, including46 new session/HTML/validation cases;
   typecheck, production and mock builds passed. Whole-source mypy **353 files** and
   whole-repository Ruff passed. Existing Vite bundle-size advisory is unchanged in kind.
@@ -48,13 +49,17 @@ Verification (synthetic/offline):
   `.venv/bin/python scripts/verify_agent_reading.py --chromium /usr/bin/chromium`;
   final receipt `/tmp/character-relay-agent-reading-browser-final.json`. The earlier build
   passed the same journey; final rerun includes nested reply/poll validator hardening.
-- Bounded manual semantic mutations in a disposable source copy: **11 killed** for
+- Bounded manual semantic mutations in disposable source/frontend copies: **15 killed**
+  (**11 backend +4 frontend**) for
   room/profile scope, fresh access, own echo, cutoff/complete range, newer gap, live
   captured-version/reply safeguards and unknown batch ID. One initial mutation removed
   only the reply source-version comparison and survived because the corresponding room
   version comparison remained; source ingestion advances both for content changes, so
   this single deletion is equivalent. Removing both matching guards was then killed.
-  Receipt `/tmp/agent-reading-mutation-summary.json`; no protected decision excluded.
+  Frontend mutations break async scope guards, durable request-failure gaps, rollover
+  second-failure detection and the silent transport watchdog; all4 were killed.
+  Receipts `/tmp/agent-reading-mutation-summary.json` and
+  `/tmp/agent-reading-frontend-mutation-results.json`; no protected decision excluded.
   This is not a repository-wide mutation score or proof of every concurrency schedule.
 - Root integration/self-review plus bounded read-only source/test review. Review prompted
   fixes for live parent-preview leakage, ephemeral request-failure gaps, full-history
@@ -70,8 +75,13 @@ No deployed endpoint, real account/token, production data/message or Discord web
 was used. Dots tool wait-on-element capability and actual low-frequency browser operation
 remain **UNVERIFIED**. Recovered transport/access proves only collected current state,
 not complete Discord Gateway/Connector history, and does not fix platform permission
-refusals. Next gate: remote exact-head checks and review of the focused PR; merge
-and manual production rollout are separate authorization scopes.
+refusals. [PR #227](https://github.com/wong001110/character-relay/pull/227) is OPEN, not
+merged. Source/ledger head `b3c97e9` also passed Web, Connector, Docker, Public Demo source
+contract and Railway smoke; Python3.12/3.13 full CI remained in progress at this recorded
+checkpoint, and shared deployed-health is intentionally skipped by the PR workflow. This
+final receipt commit changes only PROJECT_STATE; its source tree is identical to `a0113fa`
+and `b3c97e9`. Consult the PR for fresh exact-head checks before any subsequent merge.
+Next gate: Dots browser acceptance and a separately authorized merge/production rollout.
 
 ## CLI read-only P0 checkpoint (2026-10-05)
 
