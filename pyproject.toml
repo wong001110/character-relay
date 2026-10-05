@@ -44,6 +44,7 @@ dev = [
 
 [project.scripts]
 echo-masque = "echo_masque.cli:main"
+character-relay-cli = "echo_masque.cli_client:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

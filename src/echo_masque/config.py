@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     bootstrap_admin_password: SecretStr | None = None
     bootstrap_admin_display_name: str = "Character Relay Admin"
     public_demo_enabled: bool = False
+    cli_auth_enabled: bool = False
+    cli_auth_public_origin: str = "https://echo-masque-production.up.railway.app"
+    cli_device_ttl_seconds: int = Field(default=600, ge=1, le=600)
+    cli_access_ttl_seconds: int = Field(default=900, ge=1, le=900)
     public_demo_max_runs_per_day: int = 20
     credential_encryption_keys: SecretStr | None = None
 
@@ -135,6 +139,18 @@ class Settings(BaseSettings):
     max_evaluation_cases_per_day: int = 1000
     max_template_instantiations_per_day: int = 100
     max_shared_assets_per_bundle: int = 200
+
+    @field_validator("cli_auth_public_origin")
+    @classmethod
+    def cli_origin_is_https(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https" or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+        ):
+            raise ValueError("CLI approval origin must be a credential-free HTTPS origin.")
+        return value.rstrip("/")
 
     @field_validator("knowledge_object_storage_endpoint")
     @classmethod

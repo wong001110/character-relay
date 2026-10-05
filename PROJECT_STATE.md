@@ -6,17 +6,71 @@ Updated: **2026-10-05**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / fetched main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649` (through squash-merged PR #224) |
-| Active direction | [Room Companion MVP](docs/plans/web-room-companion-2026-10-04.md): shared Web Room session and Document PiP |
-| Current instruction | Continue the requested Companion repair with Dots feedback: latest-position layout, custom emoji and readable GIF descriptions/viewing. PR #224 is merged; no further merge/manual deploy. Dots launch attribution and earlier permission-error cause remain unconfirmed; preserve Open full room behavior, live-message/send gates and independent PR #219. |
-| Development branch | `fix/room-companion-reading-20261005`, from the documentation closeout of main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
+| Repository / baseline | `wong001110/character-relay` / fetched main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00` (through squash-merged PR #225) |
+| Active direction | [CLI read-only P0](docs/plans/cli-readonly-integration-2026-10-05.md), from the user-supplied Character_Relay_CLI_Integration_Handoff.txt. Companion MVP remains merged. |
+| Current instruction | User explicitly instructed P0 implementation and merge to main, superseding the handoff's draft-only gate. No manual deployment, production migration, real-account authorization/read or real message sends. Execution-platform permission issues remain separate. |
+| Implementation / merge receipt | [PR #226](https://github.com/wong001110/character-relay/pull/226), `feat/cli-readonly-grants-20261005`, from the documentation closeout on main `6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`; exact-head checks and the authorized squash receipt are in the linked PR. Independent PR #219 remains untouched. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
-| Reading follow-up | IMPLEMENTED / LOCAL VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Dots runtime validation remains separate. |
+| Reading follow-up | MERGED / VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Exact-head remote checks passed; Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
-| Merge / production deploy | PR #214, #215, #217, #218, #221, #223 and #224 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
+| Merge / production deploy | PR #214, #215, #217, #218, #221, #223, #224 and #225 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
 | Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218 and Portal UI follow-up PR #221. PR #219 is a separate Web Room timestamp fix. |
+
+## CLI read-only P0 checkpoint (2026-10-05)
+
+Implemented the accepted [P0 plan](docs/plans/cli-readonly-integration-2026-10-05.md)
+and [client/API/rollback guide](docs/developer/cli-readonly.md): public device flow,
+cookie-only explicit account-bound review/approve/deny with CSRF, separate short-lived
+hashed grants, account and self-revoke, default-deny scoped identity/room/message
+routes, finite revalidated SSE and memory-only official HTTPS CLI. Feature defaults
+disabled; no login/admin/connector fallback or write/send/refresh/replay capability.
+Additive tables/revision only; no existing data rewrite or destructive downgrade.
+
+Verification on this implementation branch:
+
+- CLI synthetic acceptance/client: **113 passed, 1 skipped** (dedicated PostgreSQL
+  database not configured locally); the new guarded PostgreSQL CAS/restart test is
+  selected in the existing CI job. Original auth/Web Room + client regression:
+  **69 passed** (35 client cases overlap the CLI suite; do not add the totals).
+- Whole-repository Ruff passed; whole-source mypy passed across **349 files**.
+  Portal typecheck/production build and **186 tests / 26 files** passed.
+- `scripts/verify_cli_readonly.py` with real isolated API/database and Chromium:
+  actual login preserves approval route, explicit review/approval, real memory CLI
+  reads, browser revoke, CLI self-revoke, and an established real HTTP SSE stops
+  after revoke. No deployed endpoint, real account/token, Discord send or private
+  transcript capture. CLI output assertions exclude secrets and transcript bodies.
+- Bounded read-only agent review found and prompted fixes for malformed-header
+  fallback, validation-input echo, missing SSE deadline and OpenAPI schemas/security.
+  Root integration found/fixed SQLite ORM datetime evaluation; updates explicitly
+  synchronize by fetched database results. This is selective review, not an external
+  security audit or proof of all concurrency schedules.
+- Bounded semantic mutation run: **14 executed / 14 killed / 0 surviving / 0 errors**
+  in a disposable source copy. Counterexamples disable prefix detection, POST route
+  allowlist, feature/client/scope gates, persisted polling penalty, account binding,
+  read scope/room enforcement, grant revocation/expiry, post-I/O revalidation,
+  pasted-token room exclusion and argument-error secret echo.
+  This hand-authored protected-decision scope is not whole-module/repository coverage.
+  Initial driver misclassified three native pytest assertion/expected-exception
+  failures; classification was corrected and the final 14 were rerun, not called passes.
+- Full local `python -m pytest`: **1519 passed, 8 skipped, 6 warnings** in 360.81s
+  at implementation head `83107f9`. Final OpenAPI-only refinements use correct
+  `text/event-stream` and sensitive response fields without request-only `writeOnly`;
+  their focused schema check passed. Final hardening also recognizes tagged credentials
+  anywhere in malformed whitespace-separated headers and never echoes unexpected CLI
+  arguments; final focused acceptance includes these cases before the remote run. Direct pytest executable
+  lacked repository root imports; module invocation corrects this without source changes.
+- PR #226 first-head PostgreSQL foundation/CAS, Web, Connector, Public Demo and Railway
+  smoke gates passed. Final-head Python/Docker/remote gates remain required before
+  readiness and the user-authorized squash merge; consult PR checks for exact receipts.
+
+Deployment/production migration and actual Dots account acceptance are **NOT RUN**.
+The handoff's referenced mock ZIP was not supplied; the independent CLI was built
+without it. Existing Companion/Dots browser permission attribution remains unchanged.
+PR #226 tracks final check/readiness/authorized squash receipts. After merge, next
+action is separately authorized operator enablement and actual Dots acceptance; keep
+independent PR #219 separate. No production operation is implied by this checkpoint.
 
 ## Baseline correction
 
@@ -204,8 +258,11 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Review [PR #225](https://github.com/wong001110/character-relay/pull/225) and its remote checks, then verify latest position, emoji
-and GIF descriptions/viewing in Dots after delivery. Continue user-owned observation of a natural incoming message and an
+PR #226 is the exact-head gate and authorized merge receipt. After that gate, production
+enablement and actual Dots read-only approval are separate future actions. Companion follow-up:
+verify latest position, emoji and GIF descriptions/viewing in Dots after merged
+[PR #225](https://github.com/wong001110/character-relay/pull/225) reaches its runtime.
+Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
 room retains the Companion by design. PR #219 remains separate; no manual production deployment
@@ -645,12 +702,28 @@ This is self-reviewed source/browser evidence; no independent review or new boun
 campaign was run. Auth/delivery policy, backend, API/schema, dependencies and sizing implementation
 are unchanged. Existing scope/auth/fallback/send regressions provide the relevant protection checks.
 Dots' new reading behavior and live-message/send remain runtime gates; actual BFCache remains
-unverified. No new merge, manual deployment, production message/data change or PR #219 action.
+unverified. At this implementation checkpoint, no new merge, manual deployment, production
+message/data change or PR #219 action had occurred; the subsequently authorized merge is below.
 
-Delivery: [PR #225](https://github.com/wong001110/character-relay/pull/225) is open against main.
+Delivery: the user explicitly authorized merging, and
+[PR #225](https://github.com/wong001110/character-relay/pull/225) was squash-merged at
+**2026-10-05 17:51:13 MYT (09:51:13 UTC)** as
+**`6b1b2bed20c1e0fd2fc5b135ed329f858ae7fd00`**.
 Application commit **`ea0b897d5c3952cd69572f22cf5d226ca4aa2d9b`** contains the locally verified
-implementation; the subsequent delivery receipt changes only this document. Remote CI outcomes
-belong to the current PR head and its [checks](https://github.com/wong001110/character-relay/pull/225/checks),
-separately from the local evidence above. The branch was pushed with per-command HTTP/1.1;
-the PR includes the previous documentation-only PR #224 merge closeout. No further squash merge
-or manual deployment was performed.
+implementation; exact pre-merge head **`945e96c65354fcdc783126c91f2a66abb5ab7a6c`** adds only a
+delivery-receipt edit to this document. Its remote receipts passed:
+
+- [CI 37274376872](https://github.com/wong001110/character-relay/actions/runs/37274376872):
+  Python 3.12/3.13, Web, Discord Connector, PostgreSQL foundation and Docker all successful.
+- [Railway Smoke 37274376854](https://github.com/wong001110/character-relay/actions/runs/37274376854)
+  and [Public Demo contract 37274376897](https://github.com/wong001110/character-relay/actions/runs/37274376897)
+  successful; shared deployment health was skipped by the PR condition.
+
+Root confirmed the tested head, clean worktree and GitHub MERGEABLE/CLEAN state, then used
+`--match-head-commit` without bypassing checks. GitHub reports MERGED. Fetched remote main and
+fast-forwarded local main match the squash SHA; their tree exactly matches the tested PR head.
+HTTP/1.1 fetch succeeded. The PR includes the previous documentation-only PR #224 merge closeout;
+this subsequent merge receipt is another documentation-only follow-up. No application code changed
+after verification, and no manual deployment, production message/data change or PR #219 action was
+performed. Automatic deployment success is not claimed. Dots reading/live-message/send qualification
+remains the next runtime gate.

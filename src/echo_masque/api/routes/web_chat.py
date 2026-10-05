@@ -265,7 +265,9 @@ def _message_summary(message: object) -> str:
     return "[No text content]"
 
 
-def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, object]:
+def _snapshot(
+    repo: WebRoomRepository, room_id: str, user_id: str, *, include_outbox: bool = True
+) -> dict[str, object]:
     room = repo.require(room_id, user_id, fresh=True)
     sources = sorted(
         repo.sources.recent(room_scope(room), limit=64),
@@ -370,12 +372,14 @@ def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, 
                 "pinned": message.pinned,
             }
         )
-    return {
+    result: dict[str, object] = {
         "room_id": room.id,
         "history_limit": 64,
         "messages": messages,
-        "outbox": [item.model_dump(mode="json") for item in repo.outbox(room_id, user_id)],
     }
+    if include_outbox:
+        result["outbox"] = [item.model_dump(mode="json") for item in repo.outbox(room_id, user_id)]
+    return result
 
 
 @router.get("/rooms/{room_id}/messages")

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, type AuthSession, type AuthUser, type Page } from "./api";
+import { CliGrantSettings } from "./CliGrantSettings";
 import { FunctionalIcon } from "./components/ui";
 import { NotebookField, NotebookInput } from "./NotebookUI";
 import { Pagination } from "./Pagination";
@@ -9,9 +10,10 @@ interface Props {
   user: AuthUser;
   onLogout: () => Promise<void>;
   onDeleted: () => void;
+  cliDisabled?: boolean;
 }
 
-export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
+export function AccountSettingsPanel({ user, onLogout, onDeleted, cliDisabled = false }: Props) {
   const [sessionPage, setSessionPage] = useState(1);
   const [sessionResult, setSessionResult] = useState<Page<AuthSession>>({
     items: [],
@@ -125,6 +127,8 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
           <div><dt>Global role</dt><dd>{user.role === "admin" ? "Admin" : "User"}</dd></div>
         </dl>
       </section>
+
+      <CliGrantSettings key={user.id} userId={user.id} disabled={cliDisabled} />
 
       <section className="settings-paper-card">
         <div className="settings-card-heading">
