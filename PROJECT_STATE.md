@@ -11,7 +11,7 @@ Updated: **2026-10-05**. This is the only current progress and takeover record.
 | Current instruction | Continue the requested Companion repair with Dots feedback: latest-position layout, custom emoji and readable GIF descriptions/viewing. PR #224 is merged; no further merge/manual deploy. Dots launch attribution and earlier permission-error cause remain unconfirmed; preserve Open full room behavior, live-message/send gates and independent PR #219. |
 | Development branch | `fix/room-companion-reading-20261005`, from the documentation closeout of main `b0f05540aa33b2ae60dbe35cd5a1e0631ac2f649`. |
 | Sizing follow-up | MERGED / VERIFIED: small/medium/custom sizes, explicit native restoration, current-page size memory and tiny-window layout. Both headed Chromium/Xfwm4 full journeys and exact-head PR checks passed; actual Dots runtime acceptance remains open. |
-| Reading follow-up | IMPLEMENTED / LOCAL VERIFIED: layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Dots runtime validation remains separate. |
+| Reading follow-up | IMPLEMENTED / LOCAL VERIFIED in [PR #225](https://github.com/wong001110/character-relay/pull/225): layout-aware latest position, shared rich-text presentation, visible supplied media descriptions and explicit viewing links. Dots runtime validation remains separate. |
 | Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
 | Merge / production deploy | PR #214, #215, #217, #218, #221, #223 and #224 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
@@ -204,7 +204,7 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-Review the focused reading follow-up and its remote checks, then verify latest position, emoji
+Review [PR #225](https://github.com/wong001110/character-relay/pull/225) and its remote checks, then verify latest position, emoji
 and GIF descriptions/viewing in Dots after delivery. Continue user-owned observation of a natural incoming message and an
 intentional quick-text send, including full-room convergence and the delivery receipt.
 Actual Dots launch parameters/root cause remain unconfirmed. Open full
@@ -646,3 +646,11 @@ campaign was run. Auth/delivery policy, backend, API/schema, dependencies and si
 are unchanged. Existing scope/auth/fallback/send regressions provide the relevant protection checks.
 Dots' new reading behavior and live-message/send remain runtime gates; actual BFCache remains
 unverified. No new merge, manual deployment, production message/data change or PR #219 action.
+
+Delivery: [PR #225](https://github.com/wong001110/character-relay/pull/225) is open against main.
+Application commit **`ea0b897d5c3952cd69572f22cf5d226ca4aa2d9b`** contains the locally verified
+implementation; the subsequent delivery receipt changes only this document. Remote CI outcomes
+belong to the current PR head and its [checks](https://github.com/wong001110/character-relay/pull/225/checks),
+separately from the local evidence above. The branch was pushed with per-command HTTP/1.1;
+the PR includes the previous documentation-only PR #224 merge closeout. No further squash merge
+or manual deployment was performed.
