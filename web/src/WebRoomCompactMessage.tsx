@@ -58,12 +58,11 @@ function CompactMedia({ src, href, label, description, kind, tx }: {
     : <div className="room-companion-file">{content}</div>;
 }
 
-export function CompactMessage({ message, onReply, disabled, tx, showReply = true }: {
+export function CompactMessage({ message, onReply, disabled, tx }: {
   message: WebMessage;
   onReply: (id: string) => void;
   disabled: boolean;
   tx: Translate;
-  showReply?: boolean;
 }) {
   const reply = message.reply_preview;
   const text = companionMessageText(message);
@@ -119,7 +118,7 @@ export function CompactMessage({ message, onReply, disabled, tx, showReply = tru
           {message.poll && <small className="room-companion-content-note">{tx("Poll", "投票")}: {message.poll.question}</small>}
         </>
       )}
-      {showReply && !message.deleted && message.content_available && <button type="button" className="room-companion-reply-action" disabled={disabled} onClick={() => onReply(message.id)} aria-label={tx(`Reply to ${message.display_name}`, `回复 ${message.display_name}`)}>{tx("Reply", "回复")}</button>}
+      {!message.deleted && message.content_available && <button type="button" className="room-companion-reply-action" disabled={disabled} onClick={() => onReply(message.id)} aria-label={tx(`Reply to ${message.display_name}`, `回复 ${message.display_name}`)}>{tx("Reply", "回复")}</button>}
     </article>
   );
 }

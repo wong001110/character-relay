@@ -1,4 +1,6 @@
-"""Participant-scoped progress and immutable batch references, without transcript copies."""
+"""Retired cursor schema retained for compatibility and owner cleanup only.
+
+No active reading API or session-counter consumer reads or writes these records."""
 
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column

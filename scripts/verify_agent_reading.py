@@ -1,4 +1,4 @@
-"""Synthetic, real API/SSE/Chromium acceptance for Web Room Agent batch reading.
+"""Synthetic, real API/SSE/Chromium acceptance for Web Room session reminders.
 
 Run after `npm run build --prefix web` with `.venv/bin/python
 scripts/verify_agent_reading.py --chromium /usr/bin/chromium`.
@@ -14,7 +14,6 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -105,32 +104,31 @@ def panel(page: Page):
 
 def enable(page: Page) -> None:
     page.get_by_role("button", name="Enable Agent reading", exact=True).first.click()
-    expect(panel(page)).to_have_attribute("data-status", "needs_reread", timeout=15_000)
+    expect(panel(page)).to_have_attribute("data-status", "idle", timeout=15_000)
+    expect(panel(page)).to_have_attribute("data-pending-count", "0")
 
 
-def read(page: Page) -> dict[str, Any]:
-    page.get_by_role("button", name="Read batch", exact=True).first.click()
-    root = panel(page)
-    expect(root.locator("[data-agent-batch-id]")).to_be_visible(timeout=15_000)
-    return {
-        "id": root.locator("[data-agent-batch-id]").get_attribute("data-agent-batch-id"),
-        "end": root.locator("[data-agent-batch-id]").get_attribute("data-to-revision"),
-    }
-
-
-def complete(page: Page) -> None:
-    page.get_by_role("button", name="Complete this batch", exact=True).first.click()
-    expect(panel(page).locator("[data-agent-batch-id]")).to_have_count(0, timeout=15_000)
+def clear(page: Page) -> None:
+    page.get_by_role("button", name="Done · clear reminders", exact=True).first.click()
+    expect(panel(page)).to_have_attribute("data-pending-count", "0")
 
 
 def journey(browser, client, stream_cut: threading.Event) -> dict[str, Any]:
     connection, room, profile = seed(client)
     base_url = str(client.base_url).rstrip("/")
-    endpoint = f"/api/web-chat/rooms/{room}/agent-reading/{profile}"
     result: dict[str, Any] = {}
+    # More than a snapshot of history must never become processing work.
+    observe(client, connection, [source(index) for index in range(7, 71)])
+    observe(client, connection, [source(index) for index in range(71, 91)])
     with new_context(browser) as context:
         page = context.new_page()
-        # Instrument native events without creating/injecting snapshots or transport state.
+        requests: list[str] = []
+        context.on(
+            "request",
+            lambda request: (
+                requests.append(request.url) if "/agent-reading/" in request.url else None
+            ),
+        )
         page.add_init_script("""(() => {
           const Native = window.EventSource;
           window.__agentRollovers = 0;
@@ -143,84 +141,53 @@ def journey(browser, client, stream_cut: threading.Event) -> dict[str, Any]:
         })();""")
         login(page, base_url, room)
         enable(page)
-        captured = read(page)
-        page.screenshot(path="/tmp/character-relay-agent-reading.png", full_page=True)
-        initial = api(client, "GET", endpoint)
-        assert initial["batch"]["id"] == captured["id"]
-        assert initial["cursor_revision"] == 0
-        observe(client, connection, [source(7)])
-        expect(panel(page)).to_have_attribute("data-pending-count", "7", timeout=15_000)
-        assert (
-            panel(page).locator("[data-agent-batch-id]").get_attribute("data-agent-batch-id")
-            == captured["id"]
-        )
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "pending", timeout=15_000)
-        after = api(client, "GET", endpoint)
-        assert after["cursor_revision"] == int(captured["end"]) and after["pending_count"] == 1
-        result["fixed_cutoff_preserves_late_arrival"] = True
-        read(page)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
+        expect(page.locator(f"#web-room-message-{source(90)['message_id']}")).to_be_in_viewport()
+        result["history_is_context_zero_on_join"] = True
 
-        # Same latest message ID, but old source edit and delete remain observable.
-        observe(
+        observe(client, connection, [source(91)])
+        expect(panel(page)).to_have_attribute("data-pending-count", "1", timeout=15_000)
+        observe(client, connection, [source(91, text="Synthetic edit")])
+        observe(client, connection, [source(90, deleted=True, text="", content_available=False)])
+        expect(panel(page)).to_have_attribute("data-pending-count", "1")
+        clear(page)
+        observe(client, connection, [source(92)])
+        expect(panel(page)).to_have_attribute("data-pending-count", "1", timeout=15_000)
+        result["live_increment_edits_delete_clear_then_later_arrival"] = True
+
+        # A real synthetic delivery receipt establishes canonical own identity.
+        accepted = api(
             client,
-            connection,
-            [
-                source(
-                    1,
-                    text="Synthetic edited body",
-                    edited_at=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
-                )
-            ],
+            "POST",
+            f"/api/web-chat/rooms/{room}/messages",
+            json={
+                "client_message_id": "synthetic-counter-own-echo",
+                "profile_id": profile,
+                "text": "Synthetic own message",
+                "reply_to_message_id": "",
+            },
         )
-        expect(panel(page)).to_have_attribute("data-status", "pending", timeout=15_000)
-        read(page)
-        expect(panel(page)).to_contain_text("Synthetic edited body")
-        observe(client, connection, [source(1, text="", deleted=True)])
-        expect(panel(page)).not_to_contain_text("Synthetic edited body", timeout=15_000)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "pending")
-        read(page)
-        expect(panel(page)).to_contain_text("deleted", ignore_case=True)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        result["same_id_edit_delete_and_redaction"] = True
-
-        # UI send accepted by real outbox, synthetic delivery receipt, verified ingest echo.
-        # No actual Discord webhook/network send is executed.
-        page.locator(".web-room-composer textarea").fill("Synthetic Agent echo")
-        with page.expect_response(
-            lambda response: (
-                response.request.method == "POST"
-                and response.url.endswith(f"/rooms/{room}/messages")
-            )
-        ) as accepted:
-            page.locator(".web-room-composer").get_by_role(
-                "button", name="Send", exact=True
-            ).click()
-        assert accepted.value.status == 202
-        receipt = accepted.value.json()
-        headers = {"Authorization": f"Bearer {CONNECTOR_SECRET}"}
-        claim = api(
+        claimed = api(
             client,
             "POST",
             f"/api/connectors/discord/web-chat/rooms/{room}/claim",
-            headers=headers,
-            json={"connection_id": connection, "claim_nonce": "agent-browser-claim-0001"},
+            headers={"Authorization": f"Bearer {CONNECTOR_SECRET}"},
+            json={
+                "connection_id": connection,
+                "claim_nonce": "synthetic-counter-claim-0001",
+            },
         )
+        assert claimed["id"] == accepted["id"]
         api(
             client,
             "POST",
-            f"/api/connectors/discord/web-chat/outbox/{receipt['id']}/ack",
-            headers=headers,
+            f"/api/connectors/discord/web-chat/outbox/{accepted['id']}/ack",
+            headers={"Authorization": f"Bearer {CONNECTOR_SECRET}"},
             json={
                 "connection_id": connection,
-                "claim_nonce": claim["claim_nonce"],
+                "claim_nonce": claimed["claim_nonce"],
                 "status": "delivered",
-                "message_id": source(8)["message_id"],
-                "created_at": source(8)["created_at"],
+                "message_id": source(93)["message_id"],
+                "created_at": source(93)["created_at"],
                 "webhook_id": "offline-webhook",
             },
         )
@@ -229,125 +196,110 @@ def journey(browser, client, stream_cut: threading.Event) -> dict[str, Any]:
             connection,
             [
                 source(
-                    8,
+                    93,
                     author_id="offline-webhook",
                     author_is_bot=True,
                     webhook_id="offline-webhook",
-                    text="Synthetic Agent echo",
+                    text="Synthetic own message",
                 )
             ],
         )
-        expect(
-            page.locator(f".web-room-messages [data-message-id='{source(8)['message_id']}']")
-        ).to_be_visible(timeout=15_000)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        assert api(client, "GET", endpoint)["pending_count"] == 0
-        result["verified_own_echo_does_not_trigger"] = True
+        expect(page.locator(f"#web-room-message-{source(93)['message_id']}")).to_be_visible(
+            timeout=15_000
+        )
+        expect(panel(page)).to_have_attribute("data-pending-count", "1")
+        result["verified_own_receipt_echo_ignored"] = True
 
-        # Durable position survives reload; reload explicitly requires a reread.
-        persisted = api(client, "GET", endpoint)["cursor_revision"]
-        page.reload()
-        expect(page.locator(".web-room-connection.is-connected")).to_be_visible(timeout=15_000)
-        enable(page)
-        assert api(client, "GET", endpoint)["cursor_revision"] == persisted
-        read(page)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        result["reload_preserves_position_and_requires_reread"] = True
+        page.locator(".web-room-composer textarea").fill("Synthetic shared draft")
+        with context.expect_page() as popup:
+            page.get_by_role("button", name="Pop out · Room Companion", exact=True).click()
+        pip = popup.value
+        expect(panel(pip)).to_have_attribute("data-pending-count", "1")
+        clear(pip)
+        expect(panel(page)).to_have_attribute("data-pending-count", "0")
+        page.get_by_role("navigation", name="Primary navigation").get_by_role(
+            "button", name="Characters", exact=True
+        ).click()
+        observe(client, connection, [source(94)])
+        expect(panel(pip)).to_have_attribute("data-pending-count", "1", timeout=15_000)
+        pip.get_by_role("button", name="Open full room", exact=True).click()
+        expect(panel(page)).to_have_attribute("data-pending-count", "1")
+        expect(page.locator(".web-room-composer textarea")).to_have_value("Synthetic shared draft")
+        pip.get_by_role("button", name="Close Room Companion", exact=True).click()
+        result["native_companion_counter_clear_route_and_draft_shared"] = True
 
-        # Unexpected actual network failure blocks confirmation; a newer gap survives
-        # completion of a batch captured before disconnection.
-        observe(client, connection, [source(9)])
-        expect(panel(page)).to_have_attribute("data-status", "pending", timeout=15_000)
-        captured = read(page)
+        # Real transport interruption; recovery baselines current messages.
         stream_cut.set()
-        expect(panel(page)).to_have_attribute("data-status", "unknown", timeout=20_000)
-        expect(
-            page.get_by_role("button", name="Complete this batch", exact=True).first
-        ).to_be_disabled()
-        observe(client, connection, [source(10)])
+        expect(panel(page)).to_have_attribute("data-status", "disconnected", timeout=15_000)
+        observe(client, connection, [source(95)])
         stream_cut.clear()
-        expect(page.locator(".web-room-connection.is-connected")).to_be_visible(timeout=20_000)
-        expect(panel(page)).to_have_attribute("data-status", "needs_reread", timeout=20_000)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "needs_reread")
-        assert api(client, "GET", endpoint)["pending_count"] == 1
-        read(page)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        result["actual_disconnect_newer_gap_and_late_message"] = True
+        expect(panel(page)).to_have_attribute("data-connection", "connected", timeout=20_000)
+        expect(page.locator(f"#web-room-message-{source(95)['message_id']}")).to_be_visible()
+        expect(panel(page)).to_have_attribute("data-pending-count", "1")
+        observe(client, connection, [source(96)])
+        expect(panel(page)).to_have_attribute("data-pending-count", "2", timeout=15_000)
+        result["actual_disconnect_preserves_count_recovery_baselines"] = True
 
-        # An independent participant cannot inherit the first participant's progress.
+        context.set_offline(True)
+        expect(panel(page)).to_have_attribute("data-status", "disconnected", timeout=15_000)
+        clear(page)
+        context.set_offline(False)
+        expect(panel(page)).to_have_attribute("data-connection", "connected", timeout=20_000)
+        expect(panel(page)).to_have_attribute("data-pending-count", "0")
+        result["offline_status_and_local_clear"] = True
+
         second = api(
             client,
             "POST",
             "/api/web-chat/profiles",
-            json={"display_name": "Other synthetic participant"},
+            json={"display_name": "Second synthetic participant"},
         )["id"]
         page.reload()
         expect(page.locator(".web-room-connection.is-connected")).to_be_visible(timeout=15_000)
-        page.locator(".web-room-sidebar").get_by_role("combobox").nth(1).select_option(second)
-        enable(page)
-        second_endpoint = f"/api/web-chat/rooms/{room}/agent-reading/{second}"
-        assert api(client, "GET", second_endpoint)["cursor_revision"] == 0
-        read(page)
-        assert panel(page).locator(f"[data-message-id='{source(8)['message_id']}']").count() == 1
-        complete(page)
         page.locator(".web-room-sidebar").get_by_role("combobox").nth(1).select_option(profile)
-        expect(panel(page)).to_have_attribute("data-profile-id", profile, timeout=15_000)
-        assert api(client, "GET", endpoint)["cursor_revision"] > persisted
-        result["participant_progress_isolated"] = True
+        enable(page)
+        observe(client, connection, [source(97)])
+        expect(panel(page)).to_have_attribute("data-pending-count", "1", timeout=15_000)
+        page.locator(".web-room-sidebar").get_by_role("combobox").nth(1).select_option(second)
+        expect(panel(page)).to_have_attribute("data-profile-id", second)
+        expect(panel(page)).to_have_attribute("data-pending-count", "0")
+        result["reload_and_participant_switch_start_zero"] = True
 
-        # Natural server finite-stream rollover should not manufacture recovery work.
-        # The API refresh supplies real current permission evidence before waiting.
-        read(page)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        observe(client, connection, [])
+        # Heartbeats and normal finite rollover must neither count history nor duplicate SSE.
         rollovers = page.evaluate("window.__agentRollovers")
         page.wait_for_function(
             "before => window.__agentRollovers > before", arg=rollovers, timeout=70_000
         )
-        expect(page.locator(".web-room-connection.is-connected")).to_be_visible(timeout=15_000)
-        expect(panel(page)).to_have_attribute("data-status", "idle", timeout=15_000)
+        expect(panel(page)).to_have_attribute("data-connection", "connected", timeout=15_000)
+        expect(panel(page)).to_have_attribute("data-pending-count", "0")
         assert page.evaluate("window.__roomStreams.maxActive") == 1
-        result["natural_rollover_no_gap_and_one_stream"] = True
-
-        # The real native Companion shares the same processing batch and draft.
-        observe(client, connection, [source(11)])
-        expect(panel(page)).to_have_attribute("data-status", "pending", timeout=15_000)
-        page.locator(".web-room-composer textarea").fill("Synthetic draft kept during batch")
-        with context.expect_page() as popup:
-            page.get_by_role("button", name="Pop out · Room Companion", exact=True).click()
-        pip = popup.value
-        expect(panel(pip)).to_have_attribute("data-status", "pending", timeout=15_000)
-        captured = read(pip)
-        expect(panel(page).locator("[data-agent-batch-id]")).to_have_attribute(
-            "data-agent-batch-id", captured["id"]
-        )
-        complete(pip)
-        expect(panel(page)).to_have_attribute("data-status", "idle", timeout=15_000)
-        expect(page.locator(".web-room-composer textarea")).to_have_value(
-            "Synthetic draft kept during batch"
-        )
-        assert page.evaluate("window.__roomStreams.maxActive") == 1
-        pip.get_by_role("button", name="Close Room Companion", exact=True).click()
+        assert requests == []
+        result["natural_rollover_one_stream_zero_progress_api_requests"] = True
         page.locator(".web-room-composer textarea").fill("")
-        result["native_companion_shared_batch_and_draft"] = True
-
-        # Browser offline/online signals also establish uncertainty even when an
-        # emulated offline transition does not tear down an existing native TCP stream.
-        context.set_offline(True)
-        expect(panel(page)).to_have_attribute("data-status", "unknown", timeout=15_000)
-        expect(page.get_by_role("button", name="Read batch", exact=True).first).to_be_disabled()
-        context.set_offline(False)
-        expect(page.locator(".web-room-connection.is-connected")).to_be_visible(timeout=20_000)
-        expect(panel(page)).to_have_attribute("data-status", "needs_reread", timeout=20_000)
-        read(page)
-        complete(page)
-        expect(panel(page)).to_have_attribute("data-status", "idle")
-        result["native_offline_online_signals"] = True
+    assert client.get(f"/api/web-chat/rooms/{room}/agent-reading/{profile}").status_code == 404
     return result
+
+
+def fallback_journey(browser, client) -> bool:
+    connection, room, _ = seed(client)
+    with new_context(browser, "absent") as context:
+        page = context.new_page()
+        login(page, str(client.base_url).rstrip("/"), room)
+        enable(page)
+        page.get_by_role("button", name="Pop out · Room Companion", exact=True).click()
+        roots = page.locator("[data-agent-reading]")
+        expect(roots).to_have_count(2)
+        observe(client, connection, [source(7)])
+        for index in range(2):
+            expect(roots.nth(index)).to_have_attribute("data-pending-count", "1", timeout=15_000)
+        page.locator(".room-companion").get_by_role(
+            "button", name="Done · clear reminders", exact=True
+        ).click()
+        for index in range(2):
+            expect(roots.nth(index)).to_have_attribute("data-pending-count", "0")
+        assert page.evaluate("window.__roomStreams.maxActive") == 1
+        page.get_by_role("button", name="Close Room Companion", exact=True).click()
+    return True
 
 
 def main() -> None:
@@ -359,6 +311,7 @@ def main() -> None:
         browser = playwright.chromium.launch(executable_path=args.chromium)
         try:
             result = journey(browser, client, stream_cut)
+            result["fallback_companion_shared_count_and_clear"] = fallback_journey(browser, client)
             print(
                 json.dumps(
                     {"browser": browser.version, "isolated": True, "checks": result}, indent=2

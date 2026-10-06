@@ -1,11 +1,12 @@
 import { RoomRequestError } from "./roomHttp";
-import { agentReadingApi, validateAgentReadingStatus, type AgentReadingState, type AgentReadingStatus } from "./agentReadingApi";
 import { webRoomApi, webRoomCanSubmit, withAcceptedOutbox, type WebRoom, type WebProfile, type WebSnapshot, type WebSend, type WebUpload } from "./webRoomApi";
 
 export type LocalSubmission = {
   room: string; payload: WebSend; phase: "submitting" | "unknown";
   displayName: string; avatarUrl: string; attachments: WebUpload[];
 };
+export type AgentReadingState = {enabled: boolean; pendingCount: number};
+
 export interface WebRoomSessionState {
   authenticated: boolean;
   roomId: string; rooms: WebRoom[]; profiles: WebProfile[]; profileId: string;
@@ -30,17 +31,13 @@ export class WebRoomSession {
   private loading: Promise<void> | null = null;
   private checkingAccess = false;
   private restoration: {identity: string; roomId: string} | null = null;
-  private agentEpoch = 0;
-  private agentGapEvents: string[] = [];
-  private agentRequest: number | null = null;
-  private agentRefreshWanted = false;
-  private agentDisconnect = false;
+  private agentSeen: Set<string> | null = null;
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private rolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private rolloverDeadline = 0;
   private rolloverErrorSeen = false;
   private browserOnline = true;
-  constructor(private api = webRoomApi, private createStream: (url: string) => Stream = url => new EventSource(url), private readingApi = agentReadingApi) {}
+  constructor(private api = webRoomApi, private createStream: (url: string) => Stream = url => new EventSource(url)) {}
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   patch = (next: Partial<WebRoomSessionState>) => {
@@ -53,9 +50,7 @@ export class WebRoomSession {
     this.restoration = null;
     if (identity !== this.identity) {
       this.generation++;
-      this.agentEpoch++;
-      this.agentGapEvents = [];
-      this.agentRequest = null;
+      this.agentSeen = null;
       this.stopStream();
       this.identity = identity;
       this.loaded = false;
@@ -141,17 +136,16 @@ export class WebRoomSession {
     this.patch({roomId, snapshot: emptySnapshot(), reply: "", text: "", attachments: [], stickerResourceKey: "", localSubmission: null, unread: 0, error: "", busy: false});
     this.connect();
   }
-  reconnect() { this.agentTransportGap(); this.connect(); }
+  reconnect() { this.agentSeen = null; this.connect(); }
   setOnline(online: boolean) {
     if (online === this.browserOnline) return;
     this.browserOnline = online;
     if (!online) {
-      this.agentTransportGap();
+      this.agentSeen = null;
       this.stopStream();
       this.patch({connection: "disconnected"});
     } else {
       this.connect();
-      this.refreshAgentReading();
     }
   }
   private connect() {
@@ -168,22 +162,21 @@ export class WebRoomSession {
       try {
         const next: WebSnapshot = JSON.parse((event as MessageEvent<string>).data);
         if (next.room_id !== room.id || !Array.isArray(next.messages) || !Array.isArray(next.outbox)) throw new Error("invalid_room_snapshot");
-        if ((next.source_revision !== undefined || this.state.agentReading?.enabled) && (!Number.isSafeInteger(next.source_revision) || next.source_revision! < 0)) throw new Error("invalid_room_snapshot");
+        if ((next.source_revision !== undefined) && (!Number.isSafeInteger(next.source_revision) || next.source_revision! < 0)) throw new Error("invalid_room_snapshot");
         const previous = this.state.snapshot;
-        const recoveredConnection = this.state.connection !== "connected";
         const ids = new Set(previous.messages.map(item => item.id));
         const added = previous.room_id === next.room_id ? next.messages.filter(item => !ids.has(item.id)).length : 0;
         const reading = [...this.readers.values()].some(Boolean);
         const pending = this.state.localSubmission;
         const acknowledged = pending && next.outbox.some(item => item.client_message_id === pending.payload.client_message_id);
         if (acknowledged) this.clearPreviews();
-        this.patch({snapshot: next, connection: "connected", unread: reading ? 0 : this.state.unread + added,
+        const agentReading = this.countAgentMessages(next);
+        this.patch({...(agentReading ? {agentReading} : {}), snapshot: next, connection: "connected", unread: reading ? 0 : this.state.unread + added,
           ...(acknowledged ? {localSubmission: null, text: "", reply: "", attachments: [], stickerResourceKey: ""} : {})});
         this.agentTransportHealthy();
-        if (recoveredConnection || previous.source_revision !== next.source_revision || previous.room_id !== next.room_id) this.refreshAgentReading();
       } catch {
         stream.close();
-        this.agentTransportGap();
+        this.agentSeen = null;
         this.patch({snapshot: emptySnapshot(), unread: 0, error: "invalid_room_snapshot", connection: "unavailable"});
       }
     });
@@ -202,7 +195,7 @@ export class WebRoomSession {
     stream.addEventListener("unavailable", () => {
       if (!valid()) return;
       stream.close();
-      this.agentTransportGap();
+      this.agentSeen = null;
       this.patch({connection: "unavailable"});
     });
     stream.addEventListener("heartbeat", () => { if (valid()) this.agentTransportHealthy(); });
@@ -213,14 +206,14 @@ export class WebRoomSession {
       if (this.rolloverTimer) clearTimeout(this.rolloverTimer);
       this.rolloverTimer = setTimeout(() => {
         this.rolloverTimer = null;
-        if (valid()) this.agentTransportGap();
+        if (valid()) { this.agentSeen = null; this.patch({connection: "reconnecting"}); }
       }, 5_000);
     });
     stream.onerror = () => {
       if (!valid()) return;
       const expected = this.rolloverDeadline > Date.now() && !this.rolloverErrorSeen;
       this.rolloverErrorSeen = true;
-      if (!expected) this.agentTransportGap();
+      if (!expected) this.agentSeen = null;
       this.patch({connection: "reconnecting"});
       // SSE rollover is normal. A failed reopen may instead be auth loss; verify once
       // per outstanding request without treating every reconnect as revoked access.
@@ -237,43 +230,45 @@ export class WebRoomSession {
   removeReader(id: string) { this.readers.delete(id); }
   markRead() { if (this.state.unread) this.patch({unread: 0}); }
 
-  /** Explicit participant progress; human focus and scrolling never acknowledge a batch. */
+  /** Session-only reminders. Viewing and human unread never clear this count. */
   setAgentReading(enabled: boolean) {
-    if (enabled && (!this.identity || this.state.demoMode)) return;
+    if (enabled && (!this.identity || this.state.demoMode || !this.state.roomId || !this.state.profileId)) return;
     if (Boolean(this.state.agentReading?.enabled) === enabled) return;
-    this.agentEpoch++;
-    this.agentRequest = null;
-    this.agentGapEvents = [];
-    this.patch({agentReading: {enabled, busy: false, localGap: enabled, status: null, error: ""}});
-    if (enabled) { this.resetAgentReading(); if (this.state.connection === "connected") this.armAgentWatchdog(); }
-    else if (this.heartbeatTimer) { clearTimeout(this.heartbeatTimer); this.heartbeatTimer = null; }
+    this.agentSeen = null;
+    this.patch({agentReading: {enabled, pendingCount: 0}});
+    if (enabled) {
+      this.resetAgentReading();
+      this.armAgentWatchdog();
+    } else if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
   private resetAgentReading() {
-    this.agentEpoch++;
-    this.agentRequest = null;
-    this.agentGapEvents = [];
-    this.agentRefreshWanted = true;
-    this.agentDisconnect = false;
-    this.state = {...this.state, agentReading: {enabled: true, busy: false, localGap: true, status: null, error: ""}};
-    if (this.state.roomId && this.state.profileId) this.agentGapEvents.push(crypto.randomUUID());
-    void this.pumpAgentReading();
+    // Joining with a current snapshot treats it as context, never historical work.
+    this.agentSeen = this.state.snapshot.room_id === this.state.roomId && this.state.connection === "connected"
+      ? new Set(this.state.snapshot.messages.map(message => message.id)) : null;
+    this.state = {...this.state, agentReading: {enabled: true, pendingCount: 0}};
   }
-  private agentTransportGap() {
-    if (!this.state.agentReading?.enabled || this.agentDisconnect) return;
-    if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
-    this.heartbeatTimer = null;
-    this.agentDisconnect = true;
-    this.agentGapEvents.push(crypto.randomUUID());
-    this.patch({agentReading: {...this.state.agentReading, localGap: true}});
-    this.agentRefreshWanted = true;
-    void this.pumpAgentReading();
+  private countAgentMessages(next: WebSnapshot): AgentReadingState | undefined {
+    const reading = this.state.agentReading;
+    if (!reading?.enabled) return undefined;
+    if (!this.agentSeen) {
+      this.agentSeen = new Set(next.messages.map(message => message.id));
+      return reading;
+    }
+    let added = 0;
+    for (const message of next.messages) {
+      if (this.agentSeen.has(message.id)) continue;
+      this.agentSeen.add(message.id);
+      if (!message.deleted && !(message.actor_type === "web_participant" && message.author_id === `web:${this.state.profileId}`)) added++;
+    }
+    // Bounded ID-only deduplication for the latest-64 transport; no message archive.
+    while (this.agentSeen.size > 512) this.agentSeen.delete(this.agentSeen.values().next().value!);
+    return {...reading, pendingCount: reading.pendingCount + added};
   }
-  private agentRequestFailed(reason: unknown) {
-    // A lost response may hide an acknowledged mutation or an observation gap.
-    // Keep one idempotent report queued; an explicit retry never silently clears it.
-    if (!this.agentGapEvents.length) this.agentGapEvents.push(crypto.randomUUID());
-    this.agentRefreshWanted = true;
-    this.patch({agentReading: {...this.state.agentReading!, localGap: true, error: reason instanceof Error ? reason.message : "request_failed"}});
+  clearAgentReminders() {
+    if (this.state.agentReading?.enabled) this.patch({agentReading: {...this.state.agentReading, pendingCount: 0}});
   }
   private agentTransportHealthy() {
     if (!this.browserOnline) return;
@@ -282,85 +277,17 @@ export class WebRoomSession {
     this.rolloverDeadline = 0;
     this.rolloverErrorSeen = false;
     if (!this.state.agentReading?.enabled) return;
-    const recovered = this.agentDisconnect || this.state.connection !== "connected";
-    this.agentDisconnect = false;
     if (this.state.snapshot.room_id === this.state.roomId && this.state.connection === "reconnecting") this.patch({connection: "connected"});
     this.armAgentWatchdog();
-    if (recovered) this.refreshAgentReading();
   }
   private armAgentWatchdog() {
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
     if (!this.state.agentReading?.enabled || this.state.connection !== "connected") return;
     this.heartbeatTimer = setTimeout(() => {
       this.heartbeatTimer = null;
-      this.agentTransportGap();
+      this.agentSeen = null;
       this.connect();
     }, 15_000);
-  }
-  refreshAgentReading() { this.agentRefreshWanted = true; void this.pumpAgentReading(); }
-  private agentScope() {
-    return {...this.scope(), epoch: this.agentEpoch, room: this.state.roomId, profile: this.state.profileId};
-  }
-  private agentCurrent(scope: ReturnType<WebRoomSession["agentScope"]>) {
-    return this.current(scope) && this.agentEpoch === scope.epoch && this.state.roomId === scope.room && this.state.profileId === scope.profile && Boolean(this.state.agentReading?.enabled) && !this.state.demoMode;
-  }
-  private agentStatus(status: AgentReadingStatus, room: string, profile: string) {
-    return validateAgentReadingStatus(status, room, profile);
-  }
-  private async pumpAgentReading() {
-    const reading = this.state.agentReading;
-    if (!reading?.enabled || this.state.demoMode || !this.identity || !this.browserOnline || !this.state.roomId || !this.state.profileId || this.agentRequest !== null) return;
-    if (!this.agentGapEvents.length && (!this.agentRefreshWanted || this.state.connection !== "connected")) return;
-    const scope = this.agentScope();
-    this.agentRequest = scope.epoch;
-    this.patch({agentReading: {...reading, busy: true, error: ""}});
-    let failed = false;
-    try {
-      while (this.agentCurrent(scope)) {
-        const eventId = this.agentGapEvents[0];
-        if (!eventId && (!this.agentRefreshWanted || this.state.connection !== "connected")) break;
-        this.agentRefreshWanted = false;
-        const response = eventId ? await this.readingApi.gap(scope.room, scope.profile, eventId) : await this.readingApi.status(scope.room, scope.profile);
-        if (!this.agentCurrent(scope)) return;
-        const status = this.agentStatus(response, scope.room, scope.profile);
-        if (eventId) this.agentGapEvents.shift();
-        this.patch({agentReading: {...this.state.agentReading!, status, localGap: this.agentGapEvents.length > 0, error: ""}});
-      }
-    } catch (reason) {
-      failed = true;
-      if (this.agentCurrent(scope) && !this.denied(reason)) this.agentRequestFailed(reason);
-    } finally {
-      if (this.agentCurrent(scope)) {
-        this.agentRequest = null;
-        this.patch({agentReading: {...this.state.agentReading!, busy: false}});
-        if (!failed && (this.agentGapEvents.length || this.agentRefreshWanted) && this.state.connection === "connected") void this.pumpAgentReading();
-      }
-    }
-  }
-  async readAgentBatch() { await this.agentBatchAction(false); }
-  async completeAgentBatch() { await this.agentBatchAction(true); }
-  private async agentBatchAction(complete: boolean) {
-    const reading = this.state.agentReading;
-    if (!reading?.enabled || reading.busy || reading.localGap || !reading.status || this.state.connection !== "connected" || this.state.demoMode || (complete && !reading.status.batch)) return;
-    const scope = this.agentScope();
-    this.agentRequest = scope.epoch;
-    this.patch({agentReading: {...reading, busy: true, error: ""}});
-    let failed = false;
-    try {
-      const response = complete ? await this.readingApi.complete(scope.room, scope.profile, reading.status!.batch!.id) : await this.readingApi.batch(scope.room, scope.profile);
-      if (!this.agentCurrent(scope)) return;
-      const status = this.agentStatus(response, scope.room, scope.profile);
-      this.patch({agentReading: {...this.state.agentReading!, status, error: ""}});
-    } catch (reason) {
-      failed = true;
-      if (this.agentCurrent(scope) && !this.denied(reason)) this.agentRequestFailed(reason);
-    } finally {
-      if (this.agentCurrent(scope)) {
-        this.agentRequest = null;
-        this.patch({agentReading: {...this.state.agentReading!, busy: false}});
-        if (!failed) void this.pumpAgentReading();
-      }
-    }
   }
   async send() {
     const state = this.state;

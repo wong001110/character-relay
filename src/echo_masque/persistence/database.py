@@ -284,6 +284,7 @@ class Database:
                     revision="cli-readonly-grants-v1", database_kind=self.engine.dialect.name,
                 ))
                 session.commit()
+        # Retired reader schema: compatibility/owner cleanup only, no progress consumer.
         with self.session() as session:
             if session.get(DatabaseSchemaMigrationRecord, "web-room-agent-reading-v1") is None:
                 session.add(DatabaseSchemaMigrationRecord(
